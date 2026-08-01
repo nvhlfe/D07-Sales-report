@@ -436,7 +436,11 @@
     <div id="tvvImportStatus" style="font-size:11.5px;color:#4a5568;min-height:18px;margin-bottom:8px"></div>
     <div id="tvvImportPreview" style="max-height:220px;overflow-y:auto;border:1px solid #e8ecf4;border-radius:8px;display:none;margin-bottom:12px"></div>
     <button onclick="confirmTvvImport()" id="tvvImportBtn" class="modal-save-btn" disabled style="opacity:.5">Lưu vào hệ thống</button>
-    <div style="font-size:10.5px;color:#8896aa;margin-top:8px">Dữ liệu được gộp theo MSDL (trùng MSDL sẽ cập nhật lại Unit/Tên, không tạo trùng lặp) và dùng chung cho mọi tháng.</div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#991b1b;margin-top:10px;cursor:pointer">
+      <input type="checkbox" id="tvvReplaceAllChk" style="margin:0" />
+      Thay thế toàn bộ danh sách hiện có (xoá hết MSDL cũ không có trong file này)
+    </label>
+    <div style="font-size:10.5px;color:#8896aa;margin-top:6px">Mặc định: dữ liệu được gộp theo MSDL (trùng MSDL sẽ cập nhật lại Unit/Tên, không xoá người cũ). Tick ô trên nếu muốn xoá sạch danh sách cũ trên Firestore và chỉ giữ đúng những người trong file.</div>
   </div>
 </div>
 
@@ -521,7 +525,7 @@
 <!-- ══════════════════════════════════════════════ -->
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import { getFirestore, doc, setDoc, onSnapshot, addDoc, collection, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import { getFirestore, doc, setDoc, deleteField, onSnapshot, addDoc, collection, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 
 const firebaseConfig = {
@@ -543,14 +547,18 @@ let reportData = [];
 let selectedDay = 'all';
 let currentModalPerson = null;
 let currentModalDay = null;
-// pendingSave: true từ lúc có thay đổi chưa lưu xong tới khi Firestore xác nhận ghi thành công.
-// Dùng để CHẶN onSnapshot ghi đè reportData bằng dữ liệu cũ trong lúc đang có thay đổi local chưa lưu.
-let pendingSave = false;
+// pendingPersonIds: các person._id đang có thay đổi local chưa lưu xong (đang gõ / đang
+// chờ debounce / đang ghi lên server). Dùng để CHẶN snapshot ghi đè đúng những dòng này —
+// các dòng khác vẫn đồng bộ real-time bình thường.
+let pendingPersonIds = new Set();
+let personSaveTimers = new Map();
 let unsubscribeMonthListener = null;
+function genId() { return 'p_' + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+function monthDocRef(month) { return doc(db,'reports',month); }
 // Danh sách TVV nhúng sẵn (import từ data.xlsx ngày người dùng gửi, 376 dòng) —
 // dùng làm dữ liệu mặc định để nút "+TVV" hoạt động ngay cả khi chưa/không lưu được lên Firestore.
 // Nếu import qua "📥 Nhập data" thành công, dữ liệu Firestore sẽ merge đè lên danh sách này (theo MSDL).
-const TVV_SEED_DATA = [{"unit":"9EB","msdl":"60709108","name":"TRẦN THỊ TUYẾT NHUNG"},{"unit":"FTK","msdl":"60206189","name":"TRẦN THỊ ĐOAN TRÂM"},{"unit":"9CJ","msdl":"60525315","name":"PHẠM THỊ MỸ XUÂN"},{"unit":"TUQ","msdl":"60556971","name":"PHẠM THỊ MỸ TRANG"},{"unit":"TCG","msdl":"60776590","name":"PHẠM HOÀNG HUÂN"},{"unit":"SWZ","msdl":"60721271","name":"NGUYỄN THỊ NGỌC HÂN"},{"unit":"GB4","msdl":"60732652","name":"NGUYỄN THỊ HOÀNG OANH"},{"unit":"9CF","msdl":"60734793","name":"NGUYỄN THỊ CHUYỀN"},{"unit":"VA9","msdl":"60789834","name":"NGUYỄN THANH PHƯƠNG"},{"unit":"9HA","msdl":"60797524","name":"NGUYỄN HOÀNG QUÂN"},{"unit":"PKA","msdl":"60351587","name":"NGUYỄN ĐÌNH HUY"},{"unit":"PRH","msdl":"60697369","name":"LÊ MINH THANH"},{"unit":"PRH","msdl":"60733154","name":"LÊ HOÀNG VIỆT"},{"unit":"SWZ","msdl":"60704793","name":"LÊ HOÀNG THẮNG"},{"unit":"UVC","msdl":"60792098","name":"HUỲNH THANH THẢO"},{"unit":"PKA","msdl":"60709669","name":"HUỲNH NGỌC VINH"},{"unit":"B51","msdl":"60000607","name":"TRƯƠNG THỊ PHI NGA"},{"unit":"PKA","msdl":"60704790","name":"TRẦN THỊ TUYẾT HẠNH"},{"unit":"9EB","msdl":"60794072","name":"TRẦN THỊ THÚY QUANH"},{"unit":"PKA","msdl":"60337183","name":"TRẦN THỊ NGỌC PHƯƠNG"},{"unit":"UVC","msdl":"60807682","name":"NGUYỄN TRUNG HẬU"},{"unit":"OQA","msdl":"60668996","name":"NGUYỄN THỊ TOÀN"},{"unit":"V5W","msdl":"60796961","name":"NGUYỄN THỊ PHƯƠNG THẢO"},{"unit":"GB4","msdl":"60188196","name":"NGUYỄN THỊ KIỀU HẠNH"},{"unit":"PKA","msdl":"60730505","name":"NGUYỄN THỊ HẰNG"},{"unit":"GB4","msdl":"60807770","name":"NGUYỄN THANH LIÊM"},{"unit":"B51","msdl":"60611143","name":"NGUYỄN MINH TÂN"},{"unit":"GB4","msdl":"60514174","name":"NGUYỄN DUY NAM"},{"unit":"9CJ","msdl":"60593868","name":"LÊ NGUYỄN KIỀU TRINH"},{"unit":"UVC","msdl":"60807774","name":"HUỲNH THỊ CẨM LIỄU"},{"unit":"UVC","msdl":"60802513","name":"HOÀNG LÊ GIA HÂN"},{"unit":"G4D","msdl":"60386685","name":"HỒ HOÀNG QUYÊN"},{"unit":"9CJ","msdl":"60539952","name":"DƯƠNG CHÍ DŨNG"},{"unit":"UVC","msdl":"60798302","name":"ĐẶNG THỊ TUYẾT HẠNH"},{"unit":"VA9","msdl":"60806558","name":"NGUYỄN TRẦN ANH"},{"unit":"GB4","msdl":"60806779","name":"LÂM THỊ THÚY PHƯƠNG"},{"unit":"9HA","msdl":"60806792","name":"ĐỖ NGỌC THẢO"},{"unit":"9DA","msdl":"60806551","name":"ĐẶNG QUỐC THÁI"},{"unit":"GB4","msdl":"60805871","name":"TẠ LỄ CẦN"},{"unit":"GB4","msdl":"60346236","name":"VÕ CÔNG THÀNH"},{"unit":"SWZ","msdl":"60768608","name":"TRƯƠNG THỊ KÍNH"},{"unit":"GB4","msdl":"60615819","name":"TRƯƠNG THỊ KIM CHÚC"},{"unit":"GB4","msdl":"60251991","name":"TRỊNH HOÀNG BÍCH HẰNG"},{"unit":"W16","msdl":"60800276","name":"TRIỆU THỊ HẢI"},{"unit":"UVC","msdl":"60804993","name":"TRẦN THỊ KIM PHƯỢNG"},{"unit":"GB4","msdl":"60694344","name":"TRẦN THỊ HỒNG VÂN"},{"unit":"GB4","msdl":"60555448","name":"TRẦN THỊ HỒNG CÚC"},{"unit":"QBC","msdl":"60762276","name":"TRẦN KIM NGỌC PHƯỢNG"},{"unit":"UVC","msdl":"60804959","name":"TRẦN HUỲNH THẢO HIẾU"},{"unit":"VA9","msdl":"60775270","name":"TRẦN GIA HUY"},{"unit":"PKA","msdl":"60742570","name":"THÁI VÂN AN"},{"unit":"SWZ","msdl":"60774698","name":"TĂNG THÙY NHỰT"},{"unit":"TUQ","msdl":"60774036","name":"PHẠM THỊ THANH THẢO"},{"unit":"PKA","msdl":"60060907","name":"PHẠM THỊ LOAN"},{"unit":"PKA","msdl":"60243013","name":"PHẠM THỊ HỒNG NGUYÊN"},{"unit":"UVC","msdl":"60804656","name":"PHẠM THỊ HIẾU"},{"unit":"GB4","msdl":"60801718","name":"PHẠM NỮ HOÀNG MINH"},{"unit":"PKA","msdl":"60710504","name":"NGUYỄN VIẾT VINH"},{"unit":"PRH","msdl":"60721274","name":"NGUYỄN VĂN ĐỐC"},{"unit":"FTK","msdl":"60010902","name":"NGUYỄN TRANG THÙY"},{"unit":"PKA","msdl":"60735656","name":"NGUYỄN TIẾN ĐẠT"},{"unit":"QBC","msdl":"60727550","name":"NGUYỄN THỤY THANH TRANG"},{"unit":"QVR","msdl":"60757750","name":"NGUYỄN THỊ VÂN"},{"unit":"NAC","msdl":"60802220","name":"NGUYỄN THỊ TỐ TRINH"},{"unit":"PKA","msdl":"60732042","name":"NGUYỄN THỊ THÚY HỒNG"},{"unit":"PKA","msdl":"60060156","name":"NGUYỄN THỊ NGỌC HẢO"},{"unit":"UVC","msdl":"60791195","name":"NGUYỄN THỊ KIM QUỲNH"},{"unit":"VA9","msdl":"60803586","name":"NGUYỄN THỊ KIM ÁNH"},{"unit":"GB4","msdl":"60295901","name":"NGUYỄN THỊ HUỲNH ANH"},{"unit":"PRH","msdl":"60713847","name":"NGUYỄN THỊ HỒNG THẤM"},{"unit":"VA9","msdl":"60800122","name":"NGUYỄN NHẬT PHONG"},{"unit":"PKA","msdl":"60725598","name":"NGUYỄN NGỌC TÚ QUYÊN"},{"unit":"PRH","msdl":"60721106","name":"NGUYỄN ĐÔNG PHƯƠNG"},{"unit":"VA9","msdl":"60767997","name":"NGUYỄN ANH KIỆT"},{"unit":"PKA","msdl":"60083316","name":"MAI HỒNG TÂM"},{"unit":"UVC","msdl":"60805285","name":"LÝ NGỌC HÂN"},{"unit":"V5W","msdl":"60792131","name":"LƯU YẾN NHI"},{"unit":"GB4","msdl":"60144587","name":"LƯU THỊ XUÂN TRANG"},{"unit":"G4D","msdl":"60797375","name":"LƯƠNG THỊ KIM YẾN"},{"unit":"UVC","msdl":"60795178","name":"LÊ TRỌNG THUẬN"},{"unit":"SWZ","msdl":"60741723","name":"LÊ CẨM PHƯƠNG"},{"unit":"OQA","msdl":"60671946","name":"LÊ ANH VŨ"},{"unit":"GB4","msdl":"60616214","name":"HUỲNH TRUNG NHÂN"},{"unit":"VA9","msdl":"60742055","name":"HUỲNH PHAN HOÀI THƯƠNG"},{"unit":"TUQ","msdl":"60636661","name":"HOÀNG VĂN HƯNG"},{"unit":"PKA","msdl":"60709668","name":"HOÀNG THỊ NGA"},{"unit":"PKA","msdl":"60711571","name":"HOÀNG MAI TRANG"},{"unit":"PKA","msdl":"60016125","name":"ĐỖ TUYẾT NGA"},{"unit":"TCG","msdl":"60776438","name":"ĐINH THỊ NGỌC UYÊN"},{"unit":"PKA","msdl":"60793543","name":"ĐÀO THỊ LAN VY"},{"unit":"FTK","msdl":"60721099","name":"BÙI THỊ MAI TRÂM"},{"unit":"M1G","msdl":"60808386","name":"PHẠM NGUYỄN ĐĂNG TUYÊN"},{"unit":"OQA","msdl":"60621596","name":"PHẠM ANH TRÍ"},{"unit":"B51","msdl":"60808427","name":"LÊ THỊ ANH THƯ"},{"unit":"VA9","msdl":"60808447","name":"LÊ HOÀNG THỤY VI"},{"unit":"OQA","msdl":"60808385","name":"LÂM THỊ YẾN NHI"},{"unit":"B51","msdl":"60808438","name":"HUỲNH THÁI DUY"},{"unit":"SWZ","msdl":"60808089","name":"TRƯƠNG THỊ TUYẾT"},{"unit":"9CW","msdl":"60807877","name":"NGUYỄN TẤN THÀNH"},{"unit":"VA9","msdl":"60807719","name":"THÁI NGUYỄN HOÀNG YẾN PHỤNG"},{"unit":"FTK","msdl":"60807798","name":"HỒ TUẤN LINH"},{"unit":"9CW","msdl":"60807628","name":"TRƯƠNG NGÂN QUỲNH"},{"unit":"9CW","msdl":"60807603","name":"TRỊNH NGUYỆT NHI"},{"unit":"9CW","msdl":"60807604","name":"TRẦN THỊ THÙY LINH"},{"unit":"9CW","msdl":"60807610","name":"TRẦN MINH NHẬT"},{"unit":"9CW","msdl":"60807622","name":"TRẦN HOÀNG NHI"},{"unit":"9CW","msdl":"60807619","name":"PHAN THANH PHÁT"},{"unit":"9CF","msdl":"60807590","name":"PHẠM QUANG CHÍNH"},{"unit":"9CW","msdl":"60807620","name":"PHẠM DUY LONG"},{"unit":"UVC","msdl":"60807577","name":"NGUYỄN VIẾT THÀNH"},{"unit":"9CW","msdl":"60807605","name":"NGUYỄN TRẦN QUỲNH NHƯ"},{"unit":"9CW","msdl":"60807616","name":"NGUYỄN THẢO NGUYÊN"},{"unit":"9CW","msdl":"60807614","name":"NGUYỄN HỮU DANH"},{"unit":"9CW","msdl":"60807613","name":"NGÔ THANH HƯƠNG"},{"unit":"9CW","msdl":"60807611","name":"NGÔ HẢI NGỌC"},{"unit":"9CW","msdl":"60807608","name":"MAI HOÀNG THÁI DƯƠNG"},{"unit":"9CW","msdl":"60807609","name":"LÊ NGUYỄN NGỌC NGÂN"},{"unit":"9CW","msdl":"60807607","name":"LÊ NGỌC MAI"},{"unit":"9CW","msdl":"60807615","name":"HUỲNH TRẦN HOÀNG HÂN"},{"unit":"9CW","msdl":"60807606","name":"HUỲNH PHI DƯƠNG"},{"unit":"9CW","msdl":"60807612","name":"HUỲNH NGỌC MINH"},{"unit":"9CW","msdl":"60807621","name":"ĐẶNG KIM SANG"},{"unit":"9CW","msdl":"60807618","name":"BÙI NGUYỄN NHẬT NGUYÊN"},{"unit":"9CF","msdl":"60807512","name":"NGUYỄN NGÔ NGỌC TRANG"},{"unit":"9EB","msdl":"60806919","name":"TRẦN THỊ TUYẾT PHƯỢNG"},{"unit":"9CW","msdl":"60806913","name":"TRẦN PHƯỚC TÀI"},{"unit":"G4D","msdl":"60787850","name":"PHẠM TÚ UYÊN"},{"unit":"B51","msdl":"60810015","name":"PHẠM ĐỨC HUY"},{"unit":"UVC","msdl":"60809952","name":"NGUYỄN CHÂU MỸ LINH"},{"unit":"UVC","msdl":"60808543","name":"TRƯƠNG THANH NHÀN"},{"unit":"GB4","msdl":"60808545","name":"PHAN QUỲNH NHƯ"},{"unit":"OQA","msdl":"60808573","name":"NGUYỄN HOÀNG DƯƠNG NGHĨA"},{"unit":"OQA","msdl":"60808574","name":"ĐOÀN THỊ THANH THÚY"},{"unit":"UVC","msdl":"60808544","name":"CHU VŨ HỒNG HẠNH"},{"unit":"SWZ","msdl":"60637083","name":"TRẦN THỊ TƯỜNG VI"},{"unit":"PKA","msdl":"60801160","name":"TÔ NHỰT ANH"},{"unit":"VA9","msdl":"60187605","name":"NGUYỄN THỊ SỬU"},{"unit":"VA9","msdl":"60804265","name":"NGŨ THỊ THÁI DUYÊN"},{"unit":"M1G","msdl":"60533962","name":"LÊ QUANG LIÊM"},{"unit":"QBC","msdl":"60726730","name":"LÊ HỒNG NHỰT"},{"unit":"G4D","msdl":"60178139","name":"HỒ TÚ QUYÊN"},{"unit":"UVC","msdl":"60790852","name":"ĐÀO THANH DUY"},{"unit":"GB4","msdl":"60651685","name":"ĐÀO MỸ TUYÊN"},{"unit":"OQA","msdl":"60775724","name":"VƯƠNG LỆ NGỌC HÀ"},{"unit":"SWZ","msdl":"60802192","name":"VŨ THỊ MINH TRÂM"},{"unit":"VA9","msdl":"60800647","name":"VŨ THỊ HƯƠNG"},{"unit":"GB4","msdl":"60784797","name":"VŨ NGUYỄN MINH PHƯƠNG"},{"unit":"SWZ","msdl":"60805403","name":"VŨ MẠNH CƯỜNG"},{"unit":"B51","msdl":"60694723","name":"VŨ CHINH PHƯƠNG"},{"unit":"OQA","msdl":"60511274","name":"VÒNG CHĂN CƯỜNG"},{"unit":"OQA","msdl":"60776389","name":"VÕ VĂN THÂN"},{"unit":"GB4","msdl":"60512589","name":"VÕ THỊ THU THÚY"},{"unit":"TCG","msdl":"60805415","name":"VÕ THỊ NHƯ Ý"},{"unit":"FTK","msdl":"60557525","name":"VÕ THỊ HẰNG NHI"},{"unit":"OQA","msdl":"60786254","name":"VÕ THANH TRÚC"},{"unit":"PKA","msdl":"60774352","name":"VÕ THÀNH LUÂN"},{"unit":"VA9","msdl":"60773495","name":"VÕ THÀNH LONG"},{"unit":"QBC","msdl":"60799060","name":"VÕ MINH QUÂN"},{"unit":"9CW","msdl":"60807365","name":"VÕ KHÁNH HÀO"},{"unit":"9CW","msdl":"60806984","name":"VĂN PHẠM ĐAN TÚ"},{"unit":"9CW","msdl":"60807498","name":"TỪ NGUYỄN KHÁNH VY"},{"unit":"9DA","msdl":"60807275","name":"TRƯƠNG THỊ NGỌC HẰNG"},{"unit":"CCL","msdl":"60427126","name":"TRƯƠNG THỊ KIM NHẪN"},{"unit":"CCL","msdl":"60388516","name":"TRƯƠNG THỊ HÚY"},{"unit":"VA9","msdl":"60797566","name":"TRƯƠNG MINH HIẾU"},{"unit":"VA9","msdl":"60800365","name":"TRƯƠNG ĐÌNH KHANG"},{"unit":"GB4","msdl":"60707083","name":"TRỊNH VĂN TOÀN"},{"unit":"GB4","msdl":"60655297","name":"TRỊNH THỊ KIM PHƯỢNG"},{"unit":"PKA","msdl":"60799722","name":"TRỊNH TÀI NGUYÊN"},{"unit":"UVC","msdl":"60797567","name":"TRỊNH MINH HẢI"},{"unit":"GB4","msdl":"60464855","name":"TRỊNH HOÀNG BÍCH NGA"},{"unit":"TUQ","msdl":"60694557","name":"TRẦN VĂN THẢO"},{"unit":"GB4","msdl":"60236038","name":"TRẦN VĂN PHONG"},{"unit":"UVC","msdl":"60792269","name":"TRẦN TUẤN ANH"},{"unit":"FTK","msdl":"60370763","name":"TRẦN THỊ TRÀ MY"},{"unit":"PKA","msdl":"60799630","name":"TRẦN THỊ TRÀ GIANG"},{"unit":"VA9","msdl":"60737477","name":"TRẦN THỊ THÚY NGÂN"},{"unit":"TCG","msdl":"60776385","name":"TRẦN THỊ THÙY DƯƠNG"},{"unit":"PKA","msdl":"60804293","name":"TRẦN THỊ THIÊN THANH"},{"unit":"GB4","msdl":"60059918","name":"TRẦN THỊ THANH TÂM"},{"unit":"B51","msdl":"60668239","name":"TRẦN THỊ PHƯƠNG TÚ"},{"unit":"CCL","msdl":"60386650","name":"TRẦN THỊ KIM PHƯỢNG"},{"unit":"9CW","msdl":"60806983","name":"TRẦN THỊ KIỀU NHI"},{"unit":"PKA","msdl":"60040160","name":"TRẦN THỊ HOÀNG YẾN"},{"unit":"VA9","msdl":"60775361","name":"TRẦN THỊ HOÀI MY"},{"unit":"PKA","msdl":"60787886","name":"TRẦN THỊ HẰNG"},{"unit":"SWZ","msdl":"60794079","name":"TRẦN THỊ BÍCH TRÂM"},{"unit":"FTK","msdl":"60599434","name":"TRẦN THỊ BẢO UYÊN"},{"unit":"B51","msdl":"60802609","name":"TRẦN NGỌC ANH THƯ"},{"unit":"FTK","msdl":"60805305","name":"TRẦN LÊ TRÚC PHƯƠNG"},{"unit":"SWZ","msdl":"60734270","name":"TRẦN KHÁNH VINH"},{"unit":"UVC","msdl":"60800369","name":"TRẦN HẢI MY"},{"unit":"GB4","msdl":"60778422","name":"TRẦN ĐĂNG PHA"},{"unit":"VA9","msdl":"60349155","name":"TRẦN ANH TUẤN"},{"unit":"9DA","msdl":"60807077","name":"TỐNG THỊ DUYÊN AN"},{"unit":"QBC","msdl":"60779485","name":"TÔ HOÀI LAM"},{"unit":"UVC","msdl":"60805308","name":"THÁI VĂN TÚ"},{"unit":"PKA","msdl":"60801250","name":"THẠCH MINH TÂM"},{"unit":"OQA","msdl":"60806196","name":"SƠN THỊ NGUYỆT TÙNG"},{"unit":"VA9","msdl":"60798528","name":"PHAN THỊ KIM CƯƠNG"},{"unit":"9HA","msdl":"60805366","name":"PHAN NGỌC KHÁNH TOÀN"},{"unit":"UVC","msdl":"60806642","name":"PHAN ĐỨC THẾ"},{"unit":"CCL","msdl":"60778681","name":"PHẠM THỊ THU"},{"unit":"GB4","msdl":"60700471","name":"PHẠM THỊ THIM"},{"unit":"TCG","msdl":"60776390","name":"PHẠM THỊ MỸ LINH"},{"unit":"OQA","msdl":"60790090","name":"PHẠM THỊ MỸ HUYỀN"},{"unit":"PKA","msdl":"60807284","name":"PHẠM THỊ MỸ DUYÊN"},{"unit":"VA9","msdl":"60799221","name":"PHẠM THỊ LINH"},{"unit":"VA9","msdl":"60392138","name":"PHẠM THỊ HẢI"},{"unit":"9CW","msdl":"60807348","name":"PHẠM QUỐC HUY"},{"unit":"TUQ","msdl":"60802585","name":"PHẠM PHI KHÔI"},{"unit":"PKA","msdl":"60788269","name":"PHẠM NGỌC TỚI"},{"unit":"UVC","msdl":"60800351","name":"PHẠM NGỌC KIM NGÂN"},{"unit":"VA9","msdl":"60801372","name":"PHẠM MINH THUẬN"},{"unit":"V5W","msdl":"60763438","name":"PHẠM DŨNG ĐẠT"},{"unit":"UVC","msdl":"60800118","name":"PHẠM BÍNH UY"},{"unit":"CCL","msdl":"60543739","name":"ÔN THANH LAN"},{"unit":"VA9","msdl":"60696309","name":"NGUYỄN XUÂN CÔNG"},{"unit":"VA9","msdl":"60793075","name":"NGUYỄN VŨ NGỌC TRANG"},{"unit":"TUQ","msdl":"60806871","name":"NGUYỄN TRẦN THƯƠNG THƯƠNG"},{"unit":"9CW","msdl":"60807502","name":"NGUYỄN TRẦN THỊ THÚY VY"},{"unit":"CCL","msdl":"60567694","name":"NGUYỄN TRẦN QUANG HIẾU"},{"unit":"PKA","msdl":"60806817","name":"NGUYỄN TRẦN MINH THƯ"},{"unit":"9DA","msdl":"60746692","name":"NGUYỄN THỊ XUÂN LAN"},{"unit":"GB4","msdl":"60238245","name":"NGUYỄN THỊ XUÂN KIỀU"},{"unit":"B51","msdl":"60398852","name":"NGUYỄN THỊ VÂN"},{"unit":"9DA","msdl":"60806556","name":"NGUYỄN THỊ THÙY VÂN"},{"unit":"GB4","msdl":"60266691","name":"NGUYỄN THỊ THÚY"},{"unit":"CCL","msdl":"60138082","name":"NGUYỄN THỊ THU TRÚC"},{"unit":"CCL","msdl":"60001391","name":"NGUYỄN THỊ THU LƯƠNG"},{"unit":"OQA","msdl":"60699823","name":"NGUYỄN THỊ THU HUYỀN"},{"unit":"VA9","msdl":"60803415","name":"NGUYỄN THỊ PHƯƠNG UYÊN"},{"unit":"G4D","msdl":"60802586","name":"NGUYỄN THỊ PHƯƠNG THẢO"},{"unit":"VA9","msdl":"60377313","name":"NGUYỄN THỊ NHUNG"},{"unit":"UVC","msdl":"60801931","name":"NGUYỄN THỊ NHƯ THANH"},{"unit":"VA9","msdl":"60753319","name":"NGUYỄN THỊ NGỌC HOÀI"},{"unit":"B51","msdl":"60800423","name":"NGUYỄN THỊ NGỌC DIỆU"},{"unit":"GB4","msdl":"60673706","name":"NGUYỄN THỊ MỸ THO"},{"unit":"PKA","msdl":"60799684","name":"NGUYỄN THỊ MỸ HIỀN"},{"unit":"CCL","msdl":"60415114","name":"NGUYỄN THỊ MỸ HẠNH"},{"unit":"GB4","msdl":"60726812","name":"NGUYỄN THỊ MINH KIỀU"},{"unit":"VA9","msdl":"60464860","name":"NGUYỄN THỊ MINH"},{"unit":"VA9","msdl":"60769603","name":"NGUYỄN THỊ LỤA"},{"unit":"UVC","msdl":"60799666","name":"NGUYỄN THỊ LIÊN HIỆP"},{"unit":"PKA","msdl":"60787896","name":"NGUYỄN THỊ KIỀU"},{"unit":"VA9","msdl":"60534224","name":"NGUYỄN THỊ HỘT XOÀN"},{"unit":"9CW","msdl":"60807505","name":"NGUYỄN THỊ DIỄM TRANG"},{"unit":"PKA","msdl":"60782238","name":"NGUYỄN THỊ BÍCH UYÊN"},{"unit":"B51","msdl":"60001854","name":"NGUYỄN THỊ BÍCH LIÊN"},{"unit":"VA9","msdl":"60773494","name":"NGUYỄN THỊ BÉ THẢO"},{"unit":"SWZ","msdl":"60765069","name":"NGUYỄN THỊ ANH THƯ"},{"unit":"PKA","msdl":"60162085","name":"NGUYỄN THỊ ÁNH"},{"unit":"9DA","msdl":"60806562","name":"NGUYỄN THANH TUẤN"},{"unit":"QBC","msdl":"60794369","name":"NGUYỄN THANH TÂM"},{"unit":"CCL","msdl":"60457444","name":"NGUYỄN THANH HẢI"},{"unit":"C65","msdl":"60135064","name":"NGUYỄN THÀNH CHÁNH"},{"unit":"9CW","msdl":"60807503","name":"NGUYỄN QUYỀN HƯƠNG"},{"unit":"B51","msdl":"60772562","name":"NGUYỄN QUẾ CHI"},{"unit":"GB4","msdl":"60752966","name":"NGUYỄN PHẠM MINH TÂM"},{"unit":"TCG","msdl":"60802593","name":"NGUYỄN PHẠM KIỀU TRINH"},{"unit":"SWZ","msdl":"60789223","name":"NGUYỄN NHƯ NGỌC"},{"unit":"CCL","msdl":"60451501","name":"NGUYỄN NHƯ DŨNG"},{"unit":"9CW","msdl":"60807508","name":"NGUYỄN NGỌC XUÂN MAI"},{"unit":"B51","msdl":"60463362","name":"NGUYỄN NGỌC THY THY"},{"unit":"M1G","msdl":"60807458","name":"NGUYỄN NGỌC QUÝ"},{"unit":"9CW","msdl":"60807504","name":"NGUYỄN NGỌC HƯƠNG"},{"unit":"PRH","msdl":"60732657","name":"NGUYỄN NGỌC ÁNH"},{"unit":"PKA","msdl":"60793085","name":"NGUYỄN NAM HẢI"},{"unit":"PKA","msdl":"60802085","name":"NGUYỄN MINH TRÍ"},{"unit":"B51","msdl":"60805327","name":"NGUYỄN MINH HOÀI VY"},{"unit":"PKA","msdl":"60806830","name":"NGUYỄN LÊ THIÊN Ý"},{"unit":"9DA","msdl":"60807289","name":"NGUYỄN LÊ ANH TUẤN"},{"unit":"UVC","msdl":"60806560","name":"NGUYỄN KHẢ DU"},{"unit":"PKA","msdl":"60778679","name":"NGUYỄN HUỲNH XUÂN TRANG"},{"unit":"CCL","msdl":"60694332","name":"NGUYỄN HỮU KIM NGÂN"},{"unit":"PKA","msdl":"60788302","name":"NGUYỄN HỒNG ĐỨC"},{"unit":"9CW","msdl":"60807103","name":"NGUYỄN HOÀNG THANH NHÃ"},{"unit":"OQA","msdl":"60790094","name":"NGUYỄN HOÀNG THÂN"},{"unit":"B51","msdl":"60235941","name":"NGUYỄN HOÀNG MINH"},{"unit":"PKA","msdl":"60789131","name":"NGUYỄN HIỀN THẢO"},{"unit":"VA9","msdl":"60011464","name":"NGUYỄN ĐẮC HÙNG"},{"unit":"FTK","msdl":"60739915","name":"NGUYỄN CÔNG HOANH"},{"unit":"VA9","msdl":"60805059","name":"NGUYỄN CÔNG HẬU"},{"unit":"PRH","msdl":"60770134","name":"NGUYỄN CÔNG DANH"},{"unit":"GB4","msdl":"60289004","name":"NGUYỄN CHÍ HÙNG"},{"unit":"PKA","msdl":"60744086","name":"NGUYỄN CAO QUỐC KHÁNH"},{"unit":"VA9","msdl":"60799921","name":"NGUYỄN CAO ANH TUẤN"},{"unit":"UVC","msdl":"60805873","name":"NGUYỄN BẢO UYÊN"},{"unit":"CCL","msdl":"60669081","name":"NGUYỄN BÁ AN"},{"unit":"UVC","msdl":"60806450","name":"NGÔ THANH VŨ"},{"unit":"SWZ","msdl":"60802462","name":"NGÔ KHÁNH DUNG"},{"unit":"CCL","msdl":"60417646","name":"MAI THỊ CẨM TRANG"},{"unit":"PKA","msdl":"60806405","name":"MẠC THANH VY"},{"unit":"PKA","msdl":"60739427","name":"LÝ THÀNH NHÂN"},{"unit":"PKA","msdl":"60800364","name":"LÝ MINH THÀNH"},{"unit":"9CW","msdl":"60806917","name":"LƯU THÀNH LỢI"},{"unit":"B51","msdl":"60707537","name":"LƯỜNG HỮU HÀ"},{"unit":"UVC","msdl":"60806545","name":"LƯ HOÀI NHẬT THY"},{"unit":"CCL","msdl":"60565298","name":"LÊ THIỆN TIẾN"},{"unit":"PRH","msdl":"60764267","name":"LÊ THỊ YẾN NHI"},{"unit":"V5W","msdl":"60805339","name":"LÊ THỊ TUYẾT ANH"},{"unit":"TCG","msdl":"60797981","name":"LÊ THỊ THU HÀ"},{"unit":"GB4","msdl":"60776334","name":"LÊ THỊ THI"},{"unit":"PKA","msdl":"60740324","name":"LÊ THỊ THANH HOA"},{"unit":"OQA","msdl":"60774172","name":"LÊ THỊ THANH"},{"unit":"B51","msdl":"60711246","name":"LÊ THỊ THẮM"},{"unit":"TUQ","msdl":"60709081","name":"LÊ THỊ TÂM"},{"unit":"FTK","msdl":"60804971","name":"LÊ THỊ KIM TUYẾN"},{"unit":"CCL","msdl":"60171849","name":"LÊ THỊ KIM ANH"},{"unit":"CCL","msdl":"60239302","name":"LÊ THỊ HOÀNG DIỄM"},{"unit":"VA9","msdl":"60777674","name":"LÊ THỊ CẨM LOAN"},{"unit":"V5W","msdl":"60795952","name":"LÊ NGUYỄN NGỌC XUÂN QUỲNH"},{"unit":"TCG","msdl":"60802566","name":"LÊ NGUYỄN ANH THƯ"},{"unit":"UVC","msdl":"60805281","name":"LÊ HUỲNH ĐỨC"},{"unit":"UVC","msdl":"60806821","name":"LÊ HOÀNG TRÍ NHÂN"},{"unit":"UVC","msdl":"60787806","name":"LÊ ĐẶNG THÚY VI"},{"unit":"9CW","msdl":"60807440","name":"LÊ BẢO THỤY"},{"unit":"VA9","msdl":"60697374","name":"LÊ ANH TRỌNG"},{"unit":"UVC","msdl":"60800345","name":"LÂM TÚ NGUYÊN"},{"unit":"GB4","msdl":"60374912","name":"HUỲNH THỊ NGỌC YẾN"},{"unit":"SWZ","msdl":"60803363","name":"HUỲNH THỊ KIM YẾN"},{"unit":"B51","msdl":"60557501","name":"HUỲNH THỊ CẨM HỒNG"},{"unit":"QBC","msdl":"60771827","name":"HUỲNH TẤN HẢI"},{"unit":"TCG","msdl":"60805220","name":"HUỲNH PHƯƠNG NGHI"},{"unit":"VA9","msdl":"60784258","name":"HUỲNH PHAN THANH TOÀN"},{"unit":"OQA","msdl":"60775374","name":"HUỲNH NHỰT HÒA"},{"unit":"GIP","msdl":"60806898","name":"HUỲNH NGUYỄN MAI ĐOAN"},{"unit":"GB4","msdl":"60376079","name":"HUỲNH HOÀN MỸ"},{"unit":"PKA","msdl":"60136686","name":"HUỲNH ĐỨC TÂM"},{"unit":"TCG","msdl":"60785822","name":"HỨA HUỆ MẪN"},{"unit":"GB4","msdl":"60697372","name":"HOÀNG THỊ DỊU TIÊN"},{"unit":"LHO","msdl":"60794112","name":"HOÀNG HẢI NINH"},{"unit":"PKA","msdl":"60799685","name":"HOÀNG GIA HUỆ"},{"unit":"9HA","msdl":"60807343","name":"HOÀNG ĐỨC NGUYÊN GIANG"},{"unit":"OQA","msdl":"60749732","name":"HOÀNG ĐÌNH CƯƠNG"},{"unit":"GB4","msdl":"60715044","name":"HỒ THỊ YẾN NHI"},{"unit":"FTK","msdl":"60806103","name":"HÀ NGUYỄN HẢI THƯ"},{"unit":"FTK","msdl":"60806058","name":"HÀ NGỌC BÍCH"},{"unit":"PKA","msdl":"60801614","name":"GIANG THẾ NAM"},{"unit":"UVC","msdl":"60806815","name":"DƯƠNG THỊ TUYẾT MAI"},{"unit":"PRH","msdl":"60729527","name":"DƯƠNG THỊ MỸ DUYÊN"},{"unit":"B51","msdl":"60188453","name":"DƯƠNG THỊ BÍCH HẠNH"},{"unit":"SWZ","msdl":"60805307","name":"DƯƠNG HẢI LAM"},{"unit":"VA9","msdl":"60805823","name":"ĐOÀN THỊ YẾN"},{"unit":"B51","msdl":"60783254","name":"ĐOÀN THỊ MỸ QUYÊN"},{"unit":"GB4","msdl":"60717473","name":"ĐOÀN THỊ KIỀU OANH"},{"unit":"B51","msdl":"60695924","name":"ĐOÀN TẤN HUY"},{"unit":"SWZ","msdl":"60796521","name":"ĐOÀN NGỌC THẢO VY"},{"unit":"SWZ","msdl":"60749078","name":"ĐỖ VĂN ĐỨC"},{"unit":"TUQ","msdl":"60670866","name":"ĐỖ TUYẾT DUNG"},{"unit":"G4D","msdl":"60771931","name":"ĐỖ THỊ THANH LOAN"},{"unit":"VA9","msdl":"60723933","name":"ĐỖ THỊ HUYỀN"},{"unit":"UVC","msdl":"60799760","name":"ĐỖ THÀNH ĐẠT"},{"unit":"V5W","msdl":"60799667","name":"ĐỖ PHƯỚC THỊNH"},{"unit":"PKA","msdl":"60801956","name":"ĐỖ NGUYỄN MỸ KIỀU"},{"unit":"SWZ","msdl":"60802217","name":"ĐỖ HỮU ĐĂNG"},{"unit":"GB4","msdl":"60186740","name":"ĐINH THỊ NHƯ NGỌC"},{"unit":"VA9","msdl":"60746690","name":"ĐINH THỊ NGỌC AN"},{"unit":"UVC","msdl":"60804961","name":"ĐINH QUANG KHẢI"},{"unit":"V5W","msdl":"60803247","name":"ĐÀO MINH HUYỀN"},{"unit":"UVC","msdl":"60802591","name":"ĐÀO MINH HUÂN"},{"unit":"PKA","msdl":"60793266","name":"ĐẶNG THÚY NGÂN"},{"unit":"GB4","msdl":"60240123","name":"ĐẶNG THỊ THỦY"},{"unit":"B51","msdl":"60697285","name":"ĐẶNG THỊ THU THẢO"},{"unit":"PKA","msdl":"60732654","name":"ĐẶNG THANH THÙY"},{"unit":"VA9","msdl":"60615705","name":"ĐẶNG NGUYỄN QUỐC ANH"},{"unit":"9DA","msdl":"60806617","name":"ĐẶNG NGỌC PHƯƠNG LINH"},{"unit":"CCL","msdl":"60521078","name":"ĐẶNG NGỌC CƯ"},{"unit":"GB4","msdl":"60806839","name":"ĐẶNG HỒNG MẠNH"},{"unit":"UVC","msdl":"60801158","name":"ĐẶNG HOÀNG ANH"},{"unit":"PKA","msdl":"60799716","name":"ĐÀM QUỐC CƯỜNG"},{"unit":"UVC","msdl":"60790865","name":"CAO XUÂN HOÀNG"},{"unit":"GB4","msdl":"60729836","name":"CAO THỊ NGỌC HÂN"},{"unit":"GB4","msdl":"60756905","name":"BÙI THỊ THANH THẢO"},{"unit":"FTK","msdl":"60792070","name":"BÙI MỸ KHANH"},{"unit":"PKA","msdl":"60771826","name":"BÙI HOÀNG SƠN"}];
+const TVV_SEED_DATA = [{"unit":"9EB","msdl":"60709108","name":"TRẦN THỊ TUYẾT NHUNG"},{"unit":"FTK","msdl":"60206189","name":"TRẦN THỊ ĐOAN TRÂM"},{"unit":"9CJ","msdl":"60525315","name":"PHẠM THỊ MỸ XUÂN"},{"unit":"TUQ","msdl":"60556971","name":"PHẠM THỊ MỸ TRANG"},{"unit":"TCG","msdl":"60776590","name":"PHẠM HOÀNG HUÂN"},{"unit":"SWZ","msdl":"60721271","name":"NGUYỄN THỊ NGỌC HÂN"},{"unit":"GB4","msdl":"60732652","name":"NGUYỄN THỊ HOÀNG OANH"},{"unit":"9CF","msdl":"60734793","name":"NGUYỄN THỊ CHUYỀN"},{"unit":"VA9","msdl":"60789834","name":"NGUYỄN THANH PHƯƠNG"},{"unit":"9HA","msdl":"60797524","name":"NGUYỄN HOÀNG QUÂN"},{"unit":"PKA","msdl":"60351587","name":"NGUYỄN ĐÌNH HUY"},{"unit":"PRH","msdl":"60697369","name":"LÊ MINH THANH"},{"unit":"PRH","msdl":"60733154","name":"LÊ HOÀNG VIỆT"},{"unit":"SWZ","msdl":"60704793","name":"LÊ HOÀNG THẮNG"},{"unit":"UVC","msdl":"60792098","name":"HUỲNH THANH THẢO"},{"unit":"PKA","msdl":"60709669","name":"HUỲNH NGỌC VINH"},{"unit":"B51","msdl":"60000607","name":"TRƯƠNG THỊ PHI NGA"},{"unit":"PKA","msdl":"60704790","name":"TRẦN THỊ TUYẾT HẠNH"},{"unit":"9EB","msdl":"60794072","name":"TRẦN THỊ THÚY QUANH"},{"unit":"PKA","msdl":"60337183","name":"TRẦN THỊ NGỌC PHƯƠNG"},{"unit":"UVC","msdl":"60807682","name":"NGUYỄN TRUNG HẬU"},{"unit":"OQA","msdl":"60668996","name":"NGUYỄN THỊ TOÀN"},{"unit":"V5W","msdl":"60796961","name":"NGUYỄN THỊ PHƯƠNG THẢO"},{"unit":"GB4","msdl":"60188196","name":"NGUYỄN THỊ KIỀU HẠNH"},{"unit":"PKA","msdl":"60730505","name":"NGUYỄN THỊ HẰNG"},{"unit":"GB4","msdl":"60807770","name":"NGUYỄN THANH LIÊM"},{"unit":"B51","msdl":"60611143","name":"NGUYỄN MINH TÂN"},{"unit":"GB4","msdl":"60514174","name":"NGUYỄN DUY NAM"},{"unit":"9CJ","msdl":"60593868","name":"LÊ NGUYỄN KIỀU TRINH"},{"unit":"UVC","msdl":"60807774","name":"HUỲNH THỊ CẨM LIỄU"},{"unit":"UVC","msdl":"60802513","name":"HOÀNG LÊ GIA HÂN"},{"unit":"G4D","msdl":"60386685","name":"HỒ HOÀNG QUYÊN"},{"unit":"9CJ","msdl":"60539952","name":"DƯƠNG CHÍ DŨNG"},{"unit":"UVC","msdl":"60798302","name":"ĐẶNG THỊ TUYẾT HẠNH"},{"unit":"VA9","msdl":"60806558","name":"NGUYỄN TRẦN ANH"},{"unit":"GB4","msdl":"60806779","name":"LÂM THỊ THÚY PHƯƠNG"},{"unit":"9HA","msdl":"60806792","name":"ĐỖ NGỌC THẢO"},{"unit":"9DA","msdl":"60806551","name":"ĐẶNG QUỐC THÁI"},{"unit":"GB4","msdl":"60805871","name":"TẠ LỄ CẦN"},{"unit":"PKA","msdl":"60742570","name":"THÁI VÂN AN"},{"unit":"SWZ","msdl":"60774698","name":"TĂNG THÙY NHỰT"},{"unit":"PRH","msdl":"60721274","name":"NGUYỄN VĂN ĐỐC"},{"unit":"UVC","msdl":"60791195","name":"NGUYỄN THỊ KIM QUỲNH"},{"unit":"PKA","msdl":"60725598","name":"NGUYỄN NGỌC TÚ QUYÊN"},{"unit":"UVC","msdl":"60805285","name":"LÝ NGỌC HÂN"},{"unit":"V5W","msdl":"60792131","name":"LƯU YẾN NHI"},{"unit":"GB4","msdl":"60144587","name":"LƯU THỊ XUÂN TRANG"},{"unit":"OQA","msdl":"60671946","name":"LÊ ANH VŨ"},{"unit":"PKA","msdl":"60709668","name":"HOÀNG THỊ NGA"},{"unit":"FTK","msdl":"60721099","name":"BÙI THỊ MAI TRÂM"},{"unit":"M1G","msdl":"60808386","name":"PHẠM NGUYỄN ĐĂNG TUYÊN"},{"unit":"OQA","msdl":"60621596","name":"PHẠM ANH TRÍ"},{"unit":"B51","msdl":"60808427","name":"LÊ THỊ ANH THƯ"},{"unit":"VA9","msdl":"60808447","name":"LÊ HOÀNG THỤY VI"},{"unit":"OQA","msdl":"60808385","name":"LÂM THỊ YẾN NHI"},{"unit":"B51","msdl":"60808438","name":"HUỲNH THÁI DUY"},{"unit":"SWZ","msdl":"60808089","name":"TRƯƠNG THỊ TUYẾT"},{"unit":"VA9","msdl":"60807719","name":"THÁI NGUYỄN HOÀNG YẾN PHỤNG"},{"unit":"FTK","msdl":"60807798","name":"HỒ TUẤN LINH"},{"unit":"9CF","msdl":"60807590","name":"PHẠM QUANG CHÍNH"},{"unit":"UVC","msdl":"60807577","name":"NGUYỄN VIẾT THÀNH"},{"unit":"9CF","msdl":"60807512","name":"NGUYỄN NGÔ NGỌC TRANG"},{"unit":"9EB","msdl":"60806919","name":"TRẦN THỊ TUYẾT PHƯỢNG"},{"unit":"G4D","msdl":"60787850","name":"PHẠM TÚ UYÊN"},{"unit":"B51","msdl":"60810015","name":"PHẠM ĐỨC HUY"},{"unit":"UVC","msdl":"60809952","name":"NGUYỄN CHÂU MỸ LINH"},{"unit":"UVC","msdl":"60808543","name":"TRƯƠNG THANH NHÀN"},{"unit":"GB4","msdl":"60808545","name":"PHAN QUỲNH NHƯ"},{"unit":"OQA","msdl":"60808573","name":"NGUYỄN HOÀNG DƯƠNG NGHĨA"},{"unit":"OQA","msdl":"60808574","name":"ĐOÀN THỊ THANH THÚY"},{"unit":"UVC","msdl":"60808544","name":"CHU VŨ HỒNG HẠNH"},{"unit":"SWZ","msdl":"60637083","name":"TRẦN THỊ TƯỜNG VI"},{"unit":"PKA","msdl":"60801160","name":"TÔ NHỰT ANH"},{"unit":"VA9","msdl":"60187605","name":"NGUYỄN THỊ SỬU"},{"unit":"VA9","msdl":"60804265","name":"NGŨ THỊ THÁI DUYÊN"},{"unit":"M1G","msdl":"60533962","name":"LÊ QUANG LIÊM"},{"unit":"QBC","msdl":"60726730","name":"LÊ HỒNG NHỰT"},{"unit":"G4D","msdl":"60178139","name":"HỒ TÚ QUYÊN"},{"unit":"UVC","msdl":"60790852","name":"ĐÀO THANH DUY"},{"unit":"GB4","msdl":"60651685","name":"ĐÀO MỸ TUYÊN"}];
 
 let tvvDirectory = [...TVV_SEED_DATA]; // [{unit, msdl, name}] — shared TVV master list, dùng cho picker "+TVV"
 let tvvImportStaged = null; // danh sách đang parse từ Excel, chờ xác nhận lưu
@@ -871,41 +879,62 @@ function calcIssued(p) {
 }
 
 // ── Firebase ops ──
-let saveTimer = null;
 let isSaving = false;
 
-// Debounced save: batches rapid edits (e.g. typing fee) into 1 write,
-// shrinking the window where 2 admins could overwrite each other.
-// Chốt sẵn tháng (targetMonth) và snapshot dữ liệu ngay lúc gõ — không đọc lại
-// monthSelect.value/reportData tại thời điểm 500ms sau, để tránh lưu nhầm tháng
-// nếu người dùng đổi tháng trong lúc đang chờ debounce.
-function saveCurrentMonth() {
-  pendingSave = true;
-  clearTimeout(saveTimer);
+// Lưu theo từng người (partial update bằng dot-notation "data.<_id>"): mỗi lần gõ 1 ô,
+// chỉ gửi lên server đúng object của người đó — KHÔNG gửi lại toàn bộ dữ liệu cả tháng
+// như trước đây. Đây là nguyên nhân chính khiến việc lưu chậm dần khi danh sách dài ra.
+// Debounce riêng theo từng người (Map theo _id) để gõ nhanh nhiều ô của 1 người vẫn gộp
+// thành 1 lần ghi, mà không ảnh hưởng tới debounce của người khác.
+function queuePersonSave(person) {
+  pendingPersonIds.add(person._id);
   const targetMonth = String(monthSelect.value);
-  saveTimer = setTimeout(() => { flushSave(targetMonth); }, 500);
+  clearTimeout(personSaveTimers.get(person._id));
+  const t = setTimeout(() => flushPersonSave(targetMonth, person), 500);
+  personSaveTimers.set(person._id, t);
 }
 
-async function flushSave(targetMonth) {
-  clearTimeout(saveTimer);
-  saveTimer = null;
+async function flushPersonSave(targetMonth, person) {
+  personSaveTimers.delete(person._id);
   isSaving = true;
   updateSaveIndicator('saving');
-  const snapshot = reportData;
   try {
-    await setDoc(doc(db,'reports',targetMonth),{
-      data: snapshot,
+    await setDoc(monthDocRef(targetMonth), {
+      data: { [person._id]: person },
       updatedAt: new Date().toISOString(),
       updatedBy: currentUser?.email || 'unknown',
-    });
+    }, { merge: true });
     updateSaveIndicator('saved');
   } catch(e) {
     console.error('Save error:', e);
     updateSaveIndicator('error');
   } finally {
     isSaving = false;
-    pendingSave = false;
+    pendingPersonIds.delete(person._id);
   }
+}
+
+// Xoá 1 người khỏi document (chỉ xoá đúng field đó, không đụng tới người khác).
+async function deletePersonRemote(person, targetMonth) {
+  try {
+    await setDoc(monthDocRef(targetMonth), {
+      data: { [person._id]: deleteField() },
+      updatedAt: new Date().toISOString(),
+      updatedBy: currentUser?.email || 'unknown',
+    }, { merge: true });
+  } catch(e) {
+    console.error('Delete error:', e);
+    alert('⚠️ Xoá không thành công, thử lại: ' + e.message);
+  }
+}
+
+// Ép ghi ngay các thay đổi đang chờ debounce (dùng khi đổi tháng / trước khi rời trang).
+function flushAllPending() {
+  const targetMonth = String(monthSelect.value);
+  personSaveTimers.forEach((t) => clearTimeout(t));
+  const pending = [...pendingPersonIds].map(id => reportData.find(p => p._id === id)).filter(Boolean);
+  personSaveTimers.clear();
+  return Promise.all(pending.map(p => flushPersonSave(targetMonth, p)));
 }
 
 function updateSaveIndicator(state) {
@@ -940,18 +969,54 @@ function loadMonthData() {
   // Hủy listener của tháng trước — trước đây mỗi lần đổi tháng lại tạo thêm 1
   // listener mới mà không hủy cái cũ, dẫn tới nhiều listener cùng ghi đè reportData.
   if (unsubscribeMonthListener) { unsubscribeMonthListener(); unsubscribeMonthListener = null; }
-  unsubscribeMonthListener = onSnapshot(doc(db,'reports',String(monthSelect.value)), snap => {
-    // Nếu đang có thay đổi local chưa lưu xong (đang gõ / đang chờ debounce / đang ghi lên
-    // server), KHÔNG ghi đè reportData bằng dữ liệu snapshot — đây chính là nguyên nhân
-    // gây mất data trước đây. Khi lưu xong, lần snapshot kế tiếp sẽ tự đồng bộ lại bình thường.
-    if (pendingSave || isSaving) return;
-    reportData = snap.exists() ? snap.data().data : createDefaultData();
+  const month = String(monthSelect.value);
+  unsubscribeMonthListener = onSnapshot(monthDocRef(month), async snap => {
+    if (!snap.exists()) {
+      reportData = createDefaultData();
+      renderHeader(); renderTable(); renderSummary(); renderOverview(); initDayFilter();
+      return;
+    }
+    const raw = snap.data().data;
+    if (Array.isArray(raw)) {
+      // Dữ liệu cũ lưu dạng mảng (định dạng trước đây) — chuyển 1 lần sang dạng map theo
+      // _id, để từ nay mỗi lần lưu chỉ cần gửi đúng người vừa sửa, không phải cả mảng.
+      const map = {};
+      raw.forEach((p, idx) => {
+        const id = p._id || genId();
+        map[id] = { ...p, _id: id, _order: (typeof p._order === 'number') ? p._order : idx };
+      });
+      reportData = Object.values(map).sort((a,b) => a._order - b._order);
+      renderHeader(); renderTable(); renderSummary(); renderOverview(); initDayFilter();
+      try {
+        await setDoc(monthDocRef(month), {
+          data: map, updatedAt: new Date().toISOString(), updatedBy: currentUser?.email || 'unknown',
+        });
+      } catch(e) { console.error('Lỗi chuyển đổi định dạng dữ liệu tháng:', e); }
+      return;
+    }
+    mergeReportDataFromSnapshot(raw || {});
     renderHeader(); renderTable(); renderSummary(); renderOverview(); initDayFilter();
   });
 }
-function createDefaultData() {
-  return [{group:'G01',msdl:'100001',name:'Nguyễn Văn A',daily:{}}];
+
+// Gộp dữ liệu từ server vào reportData, GIỮ NGUYÊN những người đang có thay đổi local
+// chưa lưu xong (pendingPersonIds) — thay vì ghi đè toàn bộ như trước. Nhờ vậy 2 admin
+// sửa 2 dòng khác nhau cùng lúc vẫn đồng bộ được cho nhau mà không mất dữ liệu của ai.
+function mergeReportDataFromSnapshot(remoteMap) {
+  const remoteIds = new Set(Object.keys(remoteMap));
+  reportData = reportData.filter(p => remoteIds.has(p._id) || pendingPersonIds.has(p._id));
+  remoteIds.forEach(id => {
+    if (pendingPersonIds.has(id)) return; // đang sửa dở / đang lưu — không ghi đè
+    const remotePerson = { ...remoteMap[id], _id: id };
+    const idx = reportData.findIndex(p => p._id === id);
+    if (idx === -1) reportData.push(remotePerson); else reportData[idx] = remotePerson;
+  });
+  reportData.sort((a,b) => (a._order ?? 0) - (b._order ?? 0));
 }
+function createDefaultData() {
+  return [{_id: genId(), _order: 0, group:'G01',msdl:'100001',name:'Nguyễn Văn A',daily:{}}];
+}
+
 
 // ── TVV directory (danh sách TVV dùng chung, upload qua "📥 Nhập data") ──
 function loadTvvDirectory() {
@@ -988,15 +1053,20 @@ function validateFee(val) {
 function updateField(i,field,val) {
   if(userRole!=='admin'){openLoginModal();return;}
   const oldVal = reportData[i][field];
-  reportData[i][field]=val; saveCurrentMonth();
+  reportData[i][field]=val; queuePersonSave(reportData[i]);
   logAudit('update_field', `${field}: "${oldVal}" → "${val}" (dòng ${i+1})`);
 }
 function addPersonManual() {
   if(userRole!=='admin'){openLoginModal();return;}
-  reportData.push({group:'GROUP',msdl:'000000',name:'Nhân sự mới',daily:{}});
-  saveCurrentMonth(); renderHeader(); renderTable();
+  const person = {_id: genId(), _order: nextOrder(), group:'GROUP',msdl:'000000',name:'Nhân sự mới',daily:{}};
+  reportData.push(person);
+  flushPersonSave(String(monthSelect.value), person);
+  renderHeader(); renderTable();
   logAudit('add_person', `Thêm dòng mới thủ công (dòng ${reportData.length})`);
   closeTvvPicker();
+}
+function nextOrder() {
+  return reportData.reduce((m,p) => Math.max(m, p._order ?? 0), 0) + 1;
 }
 function addPersonFromDirectory(msdl) {
   if(userRole!=='admin'){openLoginModal();return;}
@@ -1004,8 +1074,10 @@ function addPersonFromDirectory(msdl) {
   if(!item) return;
   const dup = reportData.some(p => p.msdl === item.msdl);
   if(dup && !confirm(`MSDL ${item.msdl} (${item.name}) đã có trong danh sách tháng này. Vẫn thêm thêm một dòng nữa?`)) return;
-  reportData.push({group:item.unit||'GROUP', msdl:item.msdl, name:item.name, daily:{}});
-  saveCurrentMonth(); renderHeader(); renderTable();
+  const person = {_id: genId(), _order: nextOrder(), group:item.unit||'GROUP', msdl:item.msdl, name:item.name, daily:{}};
+  reportData.push(person);
+  flushPersonSave(String(monthSelect.value), person);
+  renderHeader(); renderTable();
   logAudit('add_person', `Thêm "${item.name}" (MSDL ${item.msdl}) từ danh sách TVV đã nhập`);
   closeTvvPicker();
 }
@@ -1017,7 +1089,8 @@ function deletePerson(i) {
     ? `⚠️ "${person.name}" có TỔNG PHÍ ${totalFee.toLocaleString()} VND.\n\nXóa dòng này sẽ mất toàn bộ dữ liệu hồ sơ. Bạn chắc chắn?`
     : `Xóa dòng "${person.name}"?`;
   if(!confirm(confirmMsg)) return;
-  reportData.splice(i,1); saveCurrentMonth(); renderHeader(); renderTable(); renderSummary(); renderOverview();
+  clearTimeout(personSaveTimers.get(person._id)); personSaveTimers.delete(person._id); pendingPersonIds.delete(person._id);
+  reportData.splice(i,1); deletePersonRemote(person, String(monthSelect.value)); renderHeader(); renderTable(); renderSummary(); renderOverview();
   logAudit('delete_person', `Xóa "${person.name}" (MSDL ${person.msdl}, tổng phí ${totalFee.toLocaleString()})`);
 }
 function updateCaseFee(pi,d,ci,val) {
@@ -1029,7 +1102,7 @@ function updateCaseFee(pi,d,ci,val) {
     return;
   }
   const oldFee = reportData[pi].daily[d].cases[ci].fee;
-  reportData[pi].daily[d].cases[ci].fee=val; saveCurrentMonth(); renderHeader(); renderTable();
+  reportData[pi].daily[d].cases[ci].fee=val; queuePersonSave(reportData[pi]); renderHeader(); renderTable();
   if (String(oldFee) !== String(val)) {
     logAudit('update_fee', `${reportData[pi].name} ngày ${d}: ${oldFee||0} → ${val||0} VND`);
   }
@@ -1037,7 +1110,7 @@ function updateCaseFee(pi,d,ci,val) {
 function updateCaseStatus(pi,d,ci,val) {
   if(userRole!=='admin'){openLoginModal();return;}
   const oldStatus = reportData[pi].daily[d].cases[ci].status;
-  reportData[pi].daily[d].cases[ci].status=val; saveCurrentMonth(); renderHeader(); renderTable();
+  reportData[pi].daily[d].cases[ci].status=val; queuePersonSave(reportData[pi]); renderHeader(); renderTable();
   if (oldStatus !== val) {
     logAudit('update_status', `${reportData[pi].name} ngày ${d}: ${oldStatus} → ${val}`);
   }
@@ -1049,7 +1122,7 @@ function deleteCase(pi,d,ci) {
   if (fee > 0 && !confirm(`Xóa hồ sơ phí ${fee.toLocaleString()} VND? Hành động này không thể hoàn tác.`)) return;
   reportData[pi].daily[d].cases.splice(ci,1);
   if(!reportData[pi].daily[d].cases.length) delete reportData[pi].daily[d];
-  saveCurrentMonth(); renderHeader(); renderTable();
+  queuePersonSave(reportData[pi]); renderHeader(); renderTable();
   logAudit('delete_case', `${reportData[pi].name} ngày ${d}: xóa hồ sơ ${fee.toLocaleString()} VND (${item.status})`);
 }
 
@@ -1108,6 +1181,7 @@ function openTvvImportModal() {
   document.getElementById('tvvImportPreview').innerHTML = '';
   document.getElementById('tvvImportBtn').disabled = true;
   document.getElementById('tvvImportBtn').style.opacity = '.5';
+  document.getElementById('tvvReplaceAllChk').checked = false;
   tvvImportStaged = null;
   document.getElementById('tvvImportModal').style.display = 'flex';
 }
@@ -1194,13 +1268,22 @@ function handleTvvFileSelect(evt) {
 
 async function confirmTvvImport() {
   if(!tvvImportStaged || !tvvImportStaged.length) return;
+  const replaceAll = document.getElementById('tvvReplaceAllChk').checked;
+  if(replaceAll) {
+    const removedCount = tvvDirectory.filter(t => !tvvImportStaged.some(s => s.msdl === t.msdl)).length;
+    const warn = removedCount > 0
+      ? `⚠️ THAY THẾ TOÀN BỘ: sẽ XOÁ ${removedCount} MSDL cũ không có trong file này khỏi danh sách TVV dùng chung (Firestore), chỉ giữ lại đúng ${tvvImportStaged.length} người vừa nhập. Hành động này không thể hoàn tác. Tiếp tục?`
+      : `Xác nhận thay thế toàn bộ danh sách TVV bằng ${tvvImportStaged.length} người trong file này?`;
+    if(!confirm(warn)) return;
+  }
   const btn = document.getElementById('tvvImportBtn');
   btn.disabled = true; btn.textContent = 'Đang lưu...';
   try {
-    // Gộp theo MSDL: bản ghi mới ghi đè bản ghi cũ cùng MSDL, giữ nguyên các MSDL không có trong file mới
-    const merged = new Map(tvvDirectory.map(t => [t.msdl, t]));
-    tvvImportStaged.forEach(t => { if(t.msdl) merged.set(t.msdl, t); });
-    const finalList = [...merged.values()];
+    // Mặc định: gộp theo MSDL (giữ nguyên người cũ không có trong file mới).
+    // Nếu tick "Thay thế toàn bộ": bỏ qua tvvDirectory hiện có, chỉ dùng đúng file vừa nhập.
+    const finalList = replaceAll
+      ? [...new Map(tvvImportStaged.map(t => [t.msdl, t])).values()]
+      : [...new Map([...tvvDirectory.map(t => [t.msdl, t]), ...tvvImportStaged.filter(t=>t.msdl).map(t => [t.msdl, t])]).values()];
 
     // Timeout 15s: tránh treo nút "Đang lưu..." vĩnh viễn nếu Firestore rules
     // chưa được deploy hoặc mất kết nối — trường hợp đó setDoc() có thể không
@@ -1214,7 +1297,9 @@ async function confirmTvvImport() {
       }),
       timeout,
     ]);
-    logAudit('import_tvv_directory', `Nhập/cập nhật danh sách TVV: ${tvvImportStaged.length} dòng từ file (tổng danh sách: ${finalList.length})`);
+    logAudit('import_tvv_directory', replaceAll
+      ? `THAY THẾ TOÀN BỘ danh sách TVV bằng ${tvvImportStaged.length} dòng từ file (danh sách mới: ${finalList.length})`
+      : `Nhập/cập nhật danh sách TVV: ${tvvImportStaged.length} dòng từ file (tổng danh sách: ${finalList.length})`);
     closeTvvImportModal();
   } catch(e) {
     console.error('TVV import save error:', e);
@@ -1234,7 +1319,7 @@ function editCaseNote(pi,d,ci) {
   const val = prompt('Ghi chú cho hồ sơ này (hiện khi rê chuột vào góc đỏ):', cur);
   if (val === null) return; // người dùng bấm Hủy
   item.note = val.trim();
-  saveCurrentMonth(); renderTable();
+  queuePersonSave(reportData[pi]); renderTable();
   logAudit('update_note', `${reportData[pi].name} ngày ${d}: cập nhật ghi chú hồ sơ`);
 }
 
@@ -1257,7 +1342,7 @@ function saveModalCase() {
   if(!reportData[currentModalPerson].daily[currentModalDay])
     reportData[currentModalPerson].daily[currentModalDay]={cases:[]};
   reportData[currentModalPerson].daily[currentModalDay].cases.push({fee,status,note});
-  saveCurrentMonth(); renderHeader(); renderTable(); renderSummary(); renderOverview();
+  queuePersonSave(reportData[currentModalPerson]); renderHeader(); renderTable(); renderSummary(); renderOverview();
   logAudit('add_case', `${reportData[currentModalPerson].name} ngày ${currentModalDay}: thêm hồ sơ ${Number(fee||0).toLocaleString()} VND (${status})`);
   closeCaseModal();
 }
@@ -1430,8 +1515,8 @@ let monthPrevValue = monthSelect.value;
 monthSelect.addEventListener('change', async (e) => {
   // Nếu tháng vừa rời đi còn thay đổi chưa lưu xong, ép ghi ngay lập tức trước khi
   // chuyển sang tháng khác — tránh vừa mất dữ liệu vừa lưu nhầm sang tháng mới.
-  if (pendingSave && saveTimer) {
-    await flushSave(monthPrevValue);
+  if (pendingPersonIds.size) {
+    await flushAllPending();
   }
   monthPrevValue = e.target.value;
   loadMonthData(); initDayFilter();
@@ -1439,7 +1524,7 @@ monthSelect.addEventListener('change', async (e) => {
 
 // Cảnh báo nếu người dùng đóng/tải lại trang trong lúc còn dữ liệu chưa lưu xong lên Firestore.
 window.addEventListener('beforeunload', (e) => {
-  if (pendingSave) { e.preventDefault(); e.returnValue = ''; }
+  if (pendingPersonIds.size) { e.preventDefault(); e.returnValue = ''; }
 });
 const reportBody = document.getElementById('reportBody');
 </script>
