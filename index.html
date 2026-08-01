@@ -543,6 +543,10 @@ let reportData = [];
 let selectedDay = 'all';
 let currentModalPerson = null;
 let currentModalDay = null;
+// pendingSave: true từ lúc có thay đổi chưa lưu xong tới khi Firestore xác nhận ghi thành công.
+// Dùng để CHẶN onSnapshot ghi đè reportData bằng dữ liệu cũ trong lúc đang có thay đổi local chưa lưu.
+let pendingSave = false;
+let unsubscribeMonthListener = null;
 // Danh sách TVV nhúng sẵn (import từ data.xlsx ngày người dùng gửi, 376 dòng) —
 // dùng làm dữ liệu mặc định để nút "+TVV" hoạt động ngay cả khi chưa/không lưu được lên Firestore.
 // Nếu import qua "📥 Nhập data" thành công, dữ liệu Firestore sẽ merge đè lên danh sách này (theo MSDL).
@@ -872,25 +876,36 @@ let isSaving = false;
 
 // Debounced save: batches rapid edits (e.g. typing fee) into 1 write,
 // shrinking the window where 2 admins could overwrite each other.
+// Chốt sẵn tháng (targetMonth) và snapshot dữ liệu ngay lúc gõ — không đọc lại
+// monthSelect.value/reportData tại thời điểm 500ms sau, để tránh lưu nhầm tháng
+// nếu người dùng đổi tháng trong lúc đang chờ debounce.
 function saveCurrentMonth() {
+  pendingSave = true;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
-    isSaving = true;
-    updateSaveIndicator('saving');
-    try {
-      await setDoc(doc(db,'reports',String(monthSelect.value)),{
-        data: reportData,
-        updatedAt: new Date().toISOString(),
-        updatedBy: currentUser?.email || 'unknown',
-      });
-      updateSaveIndicator('saved');
-    } catch(e) {
-      console.error('Save error:', e);
-      updateSaveIndicator('error');
-    } finally {
-      isSaving = false;
-    }
-  }, 500);
+  const targetMonth = String(monthSelect.value);
+  saveTimer = setTimeout(() => { flushSave(targetMonth); }, 500);
+}
+
+async function flushSave(targetMonth) {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  isSaving = true;
+  updateSaveIndicator('saving');
+  const snapshot = reportData;
+  try {
+    await setDoc(doc(db,'reports',targetMonth),{
+      data: snapshot,
+      updatedAt: new Date().toISOString(),
+      updatedBy: currentUser?.email || 'unknown',
+    });
+    updateSaveIndicator('saved');
+  } catch(e) {
+    console.error('Save error:', e);
+    updateSaveIndicator('error');
+  } finally {
+    isSaving = false;
+    pendingSave = false;
+  }
 }
 
 function updateSaveIndicator(state) {
@@ -922,7 +937,14 @@ async function logAudit(action, detail) {
 }
 
 function loadMonthData() {
-  onSnapshot(doc(db,'reports',String(monthSelect.value)), snap => {
+  // Hủy listener của tháng trước — trước đây mỗi lần đổi tháng lại tạo thêm 1
+  // listener mới mà không hủy cái cũ, dẫn tới nhiều listener cùng ghi đè reportData.
+  if (unsubscribeMonthListener) { unsubscribeMonthListener(); unsubscribeMonthListener = null; }
+  unsubscribeMonthListener = onSnapshot(doc(db,'reports',String(monthSelect.value)), snap => {
+    // Nếu đang có thay đổi local chưa lưu xong (đang gõ / đang chờ debounce / đang ghi lên
+    // server), KHÔNG ghi đè reportData bằng dữ liệu snapshot — đây chính là nguyên nhân
+    // gây mất data trước đây. Khi lưu xong, lần snapshot kế tiếp sẽ tự đồng bộ lại bình thường.
+    if (pendingSave || isSaving) return;
     reportData = snap.exists() ? snap.data().data : createDefaultData();
     renderHeader(); renderTable(); renderSummary(); renderOverview(); initDayFilter();
   });
@@ -1404,7 +1426,21 @@ initMonthOptions();
 loadMonthData();
 loadTvvDirectory();
 
-monthSelect.addEventListener('change', () => { loadMonthData(); initDayFilter(); });
+let monthPrevValue = monthSelect.value;
+monthSelect.addEventListener('change', async (e) => {
+  // Nếu tháng vừa rời đi còn thay đổi chưa lưu xong, ép ghi ngay lập tức trước khi
+  // chuyển sang tháng khác — tránh vừa mất dữ liệu vừa lưu nhầm sang tháng mới.
+  if (pendingSave && saveTimer) {
+    await flushSave(monthPrevValue);
+  }
+  monthPrevValue = e.target.value;
+  loadMonthData(); initDayFilter();
+});
+
+// Cảnh báo nếu người dùng đóng/tải lại trang trong lúc còn dữ liệu chưa lưu xong lên Firestore.
+window.addEventListener('beforeunload', (e) => {
+  if (pendingSave) { e.preventDefault(); e.returnValue = ''; }
+});
 const reportBody = document.getElementById('reportBody');
 </script>
 </body>
