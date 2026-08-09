@@ -149,7 +149,7 @@
     border: 1.5px solid transparent; overflow: visible;
     width: 100%; box-sizing: border-box; position: relative;
   }
-  /* Note marker — giống góc tam giác comment trong Excel */
+  /* Note marker — góc tam giác, chỉ hiện khi CHƯA có ghi chú (bấm để thêm) */
   .case-note-mark {
     position: absolute; top: -1px; right: -1px; width: 0; height: 0;
     border-style: solid; border-width: 0 8px 8px 0;
@@ -157,10 +157,15 @@
     cursor: pointer; z-index: 4; opacity: .55;
     transition: border-color .12s, opacity .12s;
   }
-  .case-note-mark:hover { opacity: 1; }
-  .case-note-mark.has-note {
-    border-color: transparent #dc2626 transparent transparent; opacity: 1;
+  .case-note-mark:hover { opacity: 1; border-color: transparent #94a3b8 transparent transparent; }
+  /* Dòng ghi chú — hiện trực tiếp ở dòng đầu tiên của ô khi đã có ghi chú */
+  .case-note-line {
+    font-size: 9px; line-height: 1.25; font-weight: 600; font-style: italic;
+    color: #7f1d1d; cursor: pointer; margin-bottom: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+    opacity: .85;
   }
+  .case-note-line:hover { opacity: 1; text-decoration: underline; }
   .case-card.none   { background: #fee2e2; border-color: #fca5a5; }
   .case-card.paid   { background: #fef9c3; border-color: #fde68a; }
   .case-card.issued { background: #dcfce7; border-color: #86efac; }
@@ -690,9 +695,15 @@ function renderTable() {
 
       const pills = data.cases.map((item, ci) => `
         <div class="case-card ${statusBadge(item.status)}" onclick="event.stopPropagation()">
-          <div class="case-note-mark ${item.note?'has-note':''}"
-            title="${item.note ? esc(item.note) : 'Bấm để thêm ghi chú'}"
+          ${item.note ? `
+          <div class="case-note-line"
+            title="${esc(item.note)}"
+            onclick="event.stopPropagation();editCaseNote(${pi},${d},${ci})">${esc(item.note)}</div>
+          ` : `
+          <div class="case-note-mark"
+            title="Bấm để thêm ghi chú"
             onclick="event.stopPropagation();editCaseNote(${pi},${d},${ci})"></div>
+          `}
           <div class="case-card-top">
             <input
               type="number"
@@ -1121,7 +1132,11 @@ function deleteCase(pi,d,ci) {
   const fee = Number(item.fee||0);
   if (fee > 0 && !confirm(`Xóa hồ sơ phí ${fee.toLocaleString()} VND? Hành động này không thể hoàn tác.`)) return;
   reportData[pi].daily[d].cases.splice(ci,1);
-  if(!reportData[pi].daily[d].cases.length) delete reportData[pi].daily[d];
+  // KHÔNG xóa hẳn key reportData[pi].daily[d] dù cases rỗng: setDoc(...,{merge:true})
+  // merge lồng nhau theo từng key của object "daily", nên nếu bỏ sót key ngày này khi
+  // gửi lên, Firestore sẽ GIỮ NGUYÊN dữ liệu cũ trên server thay vì xóa — snapshot kế
+  // tiếp trả dữ liệu cũ về và hồ sơ vừa xóa lại hiện ra. Giữ lại {cases:[]} để mảng rỗng
+  // được ghi đè đúng (mảng thì Firestore luôn ghi đè nguyên khối, không merge từng phần tử).
   queuePersonSave(reportData[pi]); renderHeader(); renderTable();
   logAudit('delete_case', `${reportData[pi].name} ngày ${d}: xóa hồ sơ ${fee.toLocaleString()} VND (${item.status})`);
 }
