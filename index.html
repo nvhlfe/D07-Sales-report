@@ -335,6 +335,7 @@
     <button onclick="openTvvImportModal()" class="btn" style="background:#e0f2fe;color:#075985;">📥 Nhập data</button>
     <button onclick="openProposalImportModal()" class="btn" style="background:#fef3c7;color:#92400e;">📄 Nhập Proposal</button>
     <button onclick="openTvvPicker()" class="btn btn-purple">＋ TVV</button>
+    <button onclick="openAddCaseModal()" class="btn btn-green">＋ HS</button>
   </div>
   <span id="saveIndicator" style="font-size:11px; font-weight:600; white-space:nowrap; min-width:80px;"></span>
   <button onclick="openAuditLog()" class="btn" style="background:#f3e8ff;color:#6d28d9;">🕘 Lịch sử</button>
@@ -492,6 +493,37 @@
   </div>
 </div>
 
+<!-- ── ADD CASE (FULL) MODAL ("＋ HS") ── -->
+<div id="addCaseModal" class="modal-bg" style="display:none">
+  <div class="modal-box" style="max-width:400px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div class="modal-title" style="margin-bottom:0">➕ Thêm hồ sơ mới</div>
+      <button onclick="closeAddCaseModal()" style="width:28px;height:28px;border-radius:50%;border:none;background:#f0f4ff;cursor:pointer;font-size:14px">✕</button>
+    </div>
+
+    <div style="font-size:10.5px;font-weight:600;color:#8896aa;margin-bottom:4px">Ngày lên hồ sơ</div>
+    <select id="acDay" class="form-input"></select>
+
+    <div style="font-size:10.5px;font-weight:600;color:#8896aa;margin-bottom:4px">Họ tên TVV</div>
+    <div style="position:relative;margin-bottom:10px">
+      <input type="text" id="acTvvSearch" placeholder="Tìm MSDL hoặc tên TVV..." class="form-input" style="margin-bottom:0" autocomplete="off"
+        oninput="renderAcTvvList()" onfocus="renderAcTvvList()" />
+      <div id="acTvvDropdown" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:60;background:#fff;border:1px solid #e8ecf4;border-radius:8px;max-height:220px;overflow-y:auto;box-shadow:0 6px 18px rgba(26,31,94,.15);margin-top:3px"></div>
+    </div>
+    <div id="acTvvSelectedBox" style="display:none;margin:-4px 0 10px;padding:7px 10px;background:#f0f4ff;border-radius:8px;font-size:11px;color:#4361ee;font-weight:600;"></div>
+
+    <input type="number" id="acFee" placeholder="Phí đóng (VND)" class="form-input" />
+    <select id="acStatus" class="form-input" style="margin-bottom:10px">
+      <option value="none">🔴 Chưa phí</option>
+      <option value="paid">🟡 Có phí (chưa PH)</option>
+      <option value="issued">🟢 Đã phát hành</option>
+    </select>
+    <textarea id="acNote" placeholder="Ghi chú (tuỳ chọn, giống comment trong Excel)" class="form-input"
+      style="margin-bottom:14px;min-height:56px;resize:vertical;font-family:inherit;"></textarea>
+    <button onclick="saveAddCaseModal()" class="modal-save-btn">Lưu hồ sơ</button>
+  </div>
+</div>
+
 <!-- ── ADD CASE MODAL ── -->
 <div id="caseModal" class="modal-bg" style="display:none">
   <div class="modal-box">
@@ -577,6 +609,7 @@ let reportData = [];
 let selectedDay = 'all';
 let currentModalPerson = null;
 let currentModalDay = null;
+let acSelectedTvv = null; // TVV đang chọn trong modal "＋ HS": {msdl,name,unit} hoặc {manual:true,name}
 // pendingPersonIds: các person._id đang có thay đổi local chưa lưu xong (đang gõ / đang
 // chờ debounce / đang ghi lên server). Dùng để CHẶN snapshot ghi đè đúng những dòng này —
 // các dòng khác vẫn đồng bộ real-time bình thường.
@@ -1212,6 +1245,118 @@ function renderTvvPickerList() {
   `).join('');
 }
 
+// ── Add Case (full) modal ("＋ HS") ──
+// Cho phép thêm 1 hồ sơ đầy đủ (ngày, TVV, phí, tình trạng, ghi chú) trong 1 bước,
+// không cần phải "＋ TVV" thêm dòng trước rồi mới bấm vào ô ngày như trước.
+function initAcDayOptions() {
+  const month = parseInt(monthSelect.value);
+  const days = getDaysInMonth(month);
+  const sel = document.getElementById('acDay');
+  let opts = '';
+  for (let d = 1; d <= days; d++) opts += `<option value="${d}">Ngày ${d}</option>`;
+  sel.innerHTML = opts;
+  // Mặc định: ưu tiên ngày đang lọc (bộ lọc "Ngày" ở toolbar), nếu không thì lấy ngày hôm nay
+  // (khi đang xem đúng tháng hiện tại), còn lại thì để ngày 1.
+  let defaultDay = 1;
+  const today = new Date();
+  if (selectedDay !== 'all') defaultDay = parseInt(selectedDay);
+  else if (today.getFullYear() === 2026 && (today.getMonth() + 1) === month) defaultDay = today.getDate();
+  sel.value = String(Math.min(Math.max(defaultDay, 1), days));
+}
+function openAddCaseModal() {
+  if(userRole!=='admin'){openLoginModal();return;}
+  initAcDayOptions();
+  acSelectedTvv = null;
+  document.getElementById('acTvvSearch').value = '';
+  document.getElementById('acTvvDropdown').style.display = 'none';
+  document.getElementById('acTvvSelectedBox').style.display = 'none';
+  document.getElementById('acFee').value = '';
+  document.getElementById('acStatus').value = 'none';
+  document.getElementById('acNote').value = '';
+  document.getElementById('addCaseModal').style.display = 'flex';
+}
+function closeAddCaseModal() { document.getElementById('addCaseModal').style.display = 'none'; }
+function renderAcTvvList() {
+  acSelectedTvv = null;
+  document.getElementById('acTvvSelectedBox').style.display = 'none';
+  const q = normalizeVi(document.getElementById('acTvvSearch').value);
+  const dropdown = document.getElementById('acTvvDropdown');
+  if(!q) { dropdown.style.display = 'none'; return; }
+
+  const filtered = tvvDirectory.filter(t =>
+    normalizeVi(t.msdl).includes(q) || normalizeVi(t.name).includes(q)
+  ).slice(0, 50);
+
+  let html = filtered.map(t => `
+    <div onclick="selectAcTvv('${esc(t.msdl)}')"
+      style="padding:8px 10px;border-bottom:1px solid #f0f4ff;cursor:pointer;"
+      onmouseover="this.style.background='#f8f9ff'" onmouseout="this.style.background=''">
+      <div style="font-size:12px;font-weight:600;color:#1a1f36;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.name)}</div>
+      <div style="font-size:10.5px;color:#8896aa">${esc(t.unit||'—')} · MSDL ${esc(t.msdl)}</div>
+    </div>`).join('');
+
+  if(!filtered.length) {
+    html = `<div style="padding:12px;text-align:center;color:#8896aa;font-size:11px">Không tìm thấy TVV phù hợp</div>`;
+  }
+  html += `<div onclick="selectAcManual()"
+      style="padding:8px 10px;cursor:pointer;color:#4361ee;font-weight:600;font-size:11px;text-align:center;border-top:1px solid #f0f4ff"
+      onmouseover="this.style.background='#f8f9ff'" onmouseout="this.style.background=''">
+      ✎ Không có trong danh sách — dùng tên vừa nhập
+    </div>`;
+
+  dropdown.innerHTML = html;
+  dropdown.style.display = 'block';
+}
+function selectAcTvv(msdl) {
+  const item = tvvDirectory.find(t => t.msdl === msdl);
+  if(!item) return;
+  acSelectedTvv = { msdl: item.msdl, name: item.name, unit: item.unit };
+  document.getElementById('acTvvSearch').value = item.name;
+  document.getElementById('acTvvDropdown').style.display = 'none';
+  const box = document.getElementById('acTvvSelectedBox');
+  box.style.display = 'block';
+  box.innerHTML = `✓ ${esc(item.name)} · ${esc(item.unit||'—')} · MSDL ${esc(item.msdl)}`;
+}
+function selectAcManual() {
+  const name = document.getElementById('acTvvSearch').value.trim();
+  if(!name) { alert('⚠️ Nhập tên TVV trước'); return; }
+  acSelectedTvv = { manual: true, name };
+  document.getElementById('acTvvDropdown').style.display = 'none';
+  const box = document.getElementById('acTvvSelectedBox');
+  box.style.display = 'block';
+  box.innerHTML = `✎ ${esc(name)} (nhập thủ công — chưa có trong danh sách TVV)`;
+}
+function saveAddCaseModal() {
+  if(userRole!=='admin'){openLoginModal();return;}
+  if(!acSelectedTvv) { alert('⚠️ Chọn TVV từ danh sách, hoặc bấm "dùng tên vừa nhập" nếu chưa có trong danh sách'); return; }
+  const day = parseInt(document.getElementById('acDay').value);
+  const fee = document.getElementById('acFee').value;
+  const status = document.getElementById('acStatus').value;
+  const note = document.getElementById('acNote').value.trim();
+  const check = validateFee(fee);
+  if(!check.ok) { alert('⚠️ ' + check.msg); return; }
+
+  // Tìm dòng TVV đã có sẵn trong tháng đang xem (theo MSDL); nếu chưa có thì tạo dòng mới.
+  let pi = acSelectedTvv.manual ? -1 : reportData.findIndex(p => p.msdl === acSelectedTvv.msdl);
+  if(pi === -1) {
+    const person = acSelectedTvv.manual
+      ? {_id: genId(), _order: nextOrder(), group:'GROUP', msdl:'000000', name: acSelectedTvv.name, daily:{}}
+      : {_id: genId(), _order: nextOrder(), group: acSelectedTvv.unit||'GROUP', msdl: acSelectedTvv.msdl, name: acSelectedTvv.name, daily:{}};
+    reportData.push(person);
+    pi = reportData.length - 1;
+    flushPersonSave(String(monthSelect.value), person);
+    logAudit('add_person', acSelectedTvv.manual
+      ? `Thêm "${person.name}" (nhập thủ công qua ＋HS)`
+      : `Thêm "${person.name}" (MSDL ${person.msdl}) từ danh sách TVV qua ＋HS`);
+  }
+
+  if(!reportData[pi].daily[day]) reportData[pi].daily[day] = {cases:[]};
+  reportData[pi].daily[day].cases.push({fee, status, note});
+  queuePersonSave(reportData[pi]); renderHeader(); renderTable(); renderSummary(); renderOverview();
+  logAudit('add_case', `${reportData[pi].name} ngày ${day}: thêm hồ sơ ${Number(fee||0).toLocaleString()} VND (${status}) qua ＋HS`);
+  closeAddCaseModal();
+}
+
 // ── TVV Import modal ("📥 Nhập data") ──
 function openTvvImportModal() {
   if(userRole!=='admin'){openLoginModal();return;}
@@ -1712,6 +1857,7 @@ Object.assign(window, {
   openLoginModal,closeLoginModal,loginDashboard,logoutDashboard,
   openAuditLog,closeAuditLog,
   openTvvPicker,closeTvvPicker,renderTvvPickerList,addPersonFromDirectory,addPersonManual,
+  openAddCaseModal,closeAddCaseModal,renderAcTvvList,selectAcTvv,selectAcManual,saveAddCaseModal,
   openTvvImportModal,closeTvvImportModal,handleTvvFileSelect,confirmTvvImport,
   openProposalImportModal,closeProposalImportModal,handleProposalFileSelect,confirmProposalImport,
 });
@@ -1736,6 +1882,16 @@ monthSelect.addEventListener('change', async (e) => {
 // Cảnh báo nếu người dùng đóng/tải lại trang trong lúc còn dữ liệu chưa lưu xong lên Firestore.
 window.addEventListener('beforeunload', (e) => {
   if (pendingPersonIds.size) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// Đóng dropdown gợi ý TVV trong modal "＋ HS" khi bấm ra ngoài ô tìm kiếm.
+document.addEventListener('click', (e) => {
+  const box = document.getElementById('acTvvSearch');
+  const dropdown = document.getElementById('acTvvDropdown');
+  if (box && dropdown && dropdown.style.display !== 'none' &&
+      !box.contains(e.target) && !dropdown.contains(e.target)) {
+    dropdown.style.display = 'none';
+  }
 });
 const reportBody = document.getElementById('reportBody');
 </script>
