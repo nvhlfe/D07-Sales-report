@@ -169,6 +169,39 @@
   .case-card.none   { background: #fee2e2; border-color: #fca5a5; }
   .case-card.paid   { background: #fef9c3; border-color: #fde68a; }
   .case-card.issued { background: #dcfce7; border-color: #86efac; }
+  /* Cảnh báo hồ sơ CF (chưa phí) tồn quá lâu (>120h / 5 ngày) — viền cam đậm + icon đồng hồ */
+  .case-card.aging {
+    border-color: #ea580c !important; border-width: 2px;
+    box-shadow: 0 0 0 2px rgba(234,88,12,.25);
+    animation: agingPulse 2.2s ease-in-out infinite;
+  }
+  .case-card.aging::after {
+    content: '⏰'; position: absolute; bottom: -2px; left: -2px;
+    font-size: 9px; line-height: 1; filter: drop-shadow(0 0 1px #fff);
+  }
+  @keyframes agingPulse {
+    0%, 100% { box-shadow: 0 0 0 2px rgba(234,88,12,.25); }
+    50%      { box-shadow: 0 0 0 4px rgba(234,88,12,.12); }
+  }
+  /* Age chip dùng trong tab "Hồ sơ chờ xử lý" */
+  .age-chip {
+    display: inline-block; padding: 2px 8px; border-radius: 20px;
+    font-size: 10.5px; font-weight: 700; white-space: nowrap;
+  }
+  .age-chip.ok   { background: #dcfce7; color: #15803d; }
+  .age-chip.warn { background: #fef3c7; color: #92400e; }
+  .age-chip.hot  { background: #fee2e2; color: #b91c1c; }
+  /* Filter chip + status pill dùng trong tab "Hồ sơ chờ xử lý" */
+  .pending-filter-btn {
+    padding: 5px 12px; border-radius: 7px; border: 1.5px solid #e8ecf4;
+    background: #fff; font-size: 10.5px; font-weight: 700; cursor: pointer;
+    color: #4a5568; transition: all .12s;
+  }
+  .pending-filter-btn:hover { border-color: #4361ee; color: #4361ee; }
+  .pending-filter-btn.active { background: #4361ee; color: #fff; border-color: #4361ee; }
+  .status-pill { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 10.5px; font-weight: 800; }
+  .status-pill.cf { background: #fee2e2; color: #7f1d1d; }
+  .status-pill.cp { background: #fef9c3; color: #713f12; }
   .case-card-top {
     display: flex; align-items: center; gap: 2px; margin-bottom: 2px;
   }
@@ -227,6 +260,11 @@
   }
   .data-table tbody tr:hover td { background: #fafbff; }
   .data-table tbody tr:last-child td { border-bottom: none; }
+  .sort-th { cursor: pointer; user-select: none; transition: color .12s, background .12s; }
+  .sort-th:hover { background: #e0e7ff; color: #4361ee; }
+  .sort-th.active { color: #4361ee; background: #e0e7ff; }
+  .sort-arrow { font-size: 9px; color: #b6bedb; margin-left: 1px; }
+  .sort-th.active .sort-arrow { color: #4361ee; }
 
   /* Hint bar */
   #hintBar {
@@ -328,6 +366,7 @@
     <button onclick="showTab('report')"  class="btn btn-tab active" id="btn-report">📋 Report</button>
     <button onclick="showTab('overview')" class="btn btn-tab" id="btn-overview">👁 Overview</button>
     <button onclick="showTab('summary')" class="btn btn-tab" id="btn-summary">📊 Tổng hợp</button>
+    <button onclick="showTab('pending')" class="btn btn-tab" id="btn-pending">⏳ Chờ xử lý</button>
   </div>
   <div class="tool-sep"></div>
   <div class="tool-group">
@@ -419,12 +458,53 @@
           <th style="text-align:left;min-width:160px">Họ tên</th>
           <th>Hồ sơ</th>
           <th>Tổng phí</th>
-          <th>Phát hành</th>
-          <th>Pending</th>
-          <th>Chưa phí</th>
+          <th class="sort-th" onclick="toggleSummarySort('issued')">Phát hành <span id="summArrow-issued" class="sort-arrow">⇅</span></th>
+          <th class="sort-th" onclick="toggleSummarySort('pending')">Pending <span id="summArrow-pending" class="sort-arrow">⇅</span></th>
+          <th class="sort-th" onclick="toggleSummarySort('nofee')">Chưa phí <span id="summArrow-nofee" class="sort-arrow">⇅</span></th>
         </tr>
       </thead>
       <tbody id="summaryBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- PENDING (HỒ SƠ CHỜ XỬ LÝ) TAB — mọi hồ sơ chưa PH: CF (chưa phí) + CP (có phí, chưa PH) -->
+<!-- ══════════════════════════════════════════════ -->
+<div id="pane-pending" class="tab-pane" style="padding: 0 14px 14px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+    <div style="font-size:11.5px;color:#8896aa;max-width:460px">
+      Toàn bộ hồ sơ <b>chưa PH</b> của tháng đang xem — gồm <b>CF</b> (chưa phí) và <b>CP</b> (có phí, chưa PH) — sắp xếp theo số ngày đã chờ, hồ sơ tồn lâu nhất lên đầu.
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+      <button onclick="setPendingFilter('all')" id="pfilter-all" class="pending-filter-btn active">Tất cả</button>
+      <button onclick="setPendingFilter('none')" id="pfilter-none" class="pending-filter-btn">🔴 CF</button>
+      <button onclick="setPendingFilter('paid')" id="pfilter-paid" class="pending-filter-btn">🟡 CP</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <span class="tool-label">Xuất "Hồ sơ tồn" &gt;</span>
+      <input type="number" id="tonThresholdInput" value="5" min="0" class="compact" style="width:52px;text-align:center" />
+      <span class="tool-label">ngày</span>
+      <button onclick="exportTonExcel()" class="btn btn-export">⬇ Xuất Hồ sơ tồn</button>
+    </div>
+  </div>
+  <div style="background:#fff;border-radius:12px;border:1px solid #e8ecf4;overflow:auto;box-shadow:0 1px 6px rgba(67,97,238,.07);">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>STT</th>
+          <th>Nhóm</th>
+          <th>MSDL</th>
+          <th style="text-align:left;min-width:160px">Họ tên</th>
+          <th>Trạng thái</th>
+          <th>Ngày lên HS</th>
+          <th>Phí</th>
+          <th>Đã chờ</th>
+          <th style="text-align:left;min-width:140px">Ghi chú</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="pendingBody"></tbody>
     </table>
   </div>
 </div>
@@ -464,6 +544,12 @@
     <input type="file" id="proposalFileInput" accept=".xlsx,.xls" class="form-input" onchange="handleProposalFileSelect(event)" style="padding:7px 10px" />
     <div id="proposalImportStatus" style="font-size:11.5px;color:#4a5568;min-height:18px;margin:8px 0"></div>
     <div id="proposalImportPreview" style="max-height:280px;overflow-y:auto;border:1px solid #e8ecf4;border-radius:8px;display:none;margin-bottom:12px"></div>
+    <div id="proposalUnmatchedBox" style="display:none;margin-bottom:12px">
+      <div style="font-size:11.5px;font-weight:700;color:#92400e;background:#fef3c7;padding:6px 10px;border-radius:8px 8px 0 0;border:1px solid #fde68a;border-bottom:none">
+        ⚠️ <span id="proposalUnmatchedCount">0</span> hồ sơ có ProposalNum (ghi chú) nhưng KHÔNG thấy trong file vừa nhập — kiểm tra lại kẻo bị sót
+      </div>
+      <div id="proposalUnmatchedList" style="max-height:180px;overflow-y:auto;border:1px solid #fde68a;border-top:none;border-radius:0 0 8px 8px"></div>
+    </div>
     <button onclick="confirmProposalImport()" id="proposalImportBtn" class="modal-save-btn" disabled style="opacity:.5">Áp dụng thay đổi</button>
     <div style="font-size:10.5px;color:#8896aa;margin-top:8px;line-height:1.5">
       Quy tắc: nếu ProposalNum trong file trùng với ghi chú của hồ sơ →
@@ -637,6 +723,14 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
+// Làm mới cảnh báo "tuổi hồ sơ" (viền cam CF quá 120h) và tab "Hồ sơ chờ xử lý" theo thời gian
+// thực, phòng khi người dùng để mở trang lâu mà không thao tác gì (không cần chính xác từng
+// giây nên chỉ cần refresh mỗi 5 phút).
+setInterval(() => {
+  renderTable();
+  if(document.getElementById('pane-pending')?.classList.contains('active')) renderPendingTab();
+}, 5 * 60 * 1000);
+
 // ── Month options ──
 function initMonthOptions() {
   for(let i = 1; i <= 12; i++) {
@@ -650,9 +744,20 @@ function initMonthOptions() {
 
 function getDaysInMonth(m) { return new Date(2026, m, 0).getDate(); }
 
+// ── Tuổi hồ sơ ──
+// "Ngày lên hồ sơ" chính là ngày (d) mà case được lưu vào trong daily{}, nên tuổi hồ sơ
+// được tính trực tiếp từ ngày đó — không cần lưu thêm timestamp riêng, và áp dụng đúng
+// luôn cho cả những hồ sơ cũ đã nhập từ trước.
+const AGING_THRESHOLD_HOURS = 120; // 5 ngày — dùng để cảnh báo hồ sơ CF (chưa phí) tồn lâu
+function caseAgeHours(month, day) {
+  const caseDate = new Date(2026, month - 1, day, 0, 0, 0);
+  return (Date.now() - caseDate.getTime()) / 3600000;
+}
+function caseAgeDays(month, day) { return Math.floor(caseAgeHours(month, day) / 24); }
+
 // ── Tab switching ──
 function showTab(tab) {
-  ['report','overview','summary'].forEach(t => {
+  ['report','overview','summary','pending'].forEach(t => {
     document.getElementById('pane-' + t).classList.remove('active');
     const btn = document.getElementById('btn-' + t);
     if(btn) btn.classList.remove('active');
@@ -662,6 +767,7 @@ function showTab(tab) {
   if(btn) btn.classList.add('active');
   if(tab === 'summary') renderSummary();
   if(tab === 'overview') renderOverview();
+  if(tab === 'pending') renderPendingTab();
 }
 
 // ── Render header ──
@@ -751,8 +857,11 @@ function renderTable() {
         if(item.status === 'paid')   { paidNI += fee; }
       });
 
-      const pills = data.cases.map((item, ci) => `
-        <div class="case-card ${statusBadge(item.status)}" onclick="event.stopPropagation()">
+      const pills = data.cases.map((item, ci) => {
+        const isAging = item.status === 'none' && caseAgeHours(month, d) > AGING_THRESHOLD_HOURS;
+        return `
+        <div class="case-card ${statusBadge(item.status)}${isAging ? ' aging' : ''}" onclick="event.stopPropagation()"
+          ${isAging ? `title="Hồ sơ Chưa phí (CF) đã quá ${AGING_THRESHOLD_HOURS} giờ — cần thúc"` : ''}>
           ${item.note ? `
           <div class="case-note-line"
             title="${esc(item.note)}"
@@ -782,7 +891,8 @@ function renderTable() {
               class="status-btn s-issued ${item.status==='issued'?'active':''}" title="Phát hành">PH</button>
           </div>
         </div>
-      `).join('');
+      `;
+      }).join('');
 
       row += `<td class="day-cell" onclick="openCaseModal(${pi},${d})" style="border:1px solid #edf0f9">${pills}</td>`;
     }
@@ -818,7 +928,7 @@ function renderSummary() {
   tbody.innerHTML = '';
   let tC=0,tF=0,tI=0,tP=0,tN=0;
 
-  reportData.forEach((person, i) => {
+  const rows = reportData.map(person => {
     let cases=0,fee=0,issued=0,noFee=0;
     Object.values(person.daily).forEach(d => {
       if(!d.cases) return;
@@ -828,23 +938,31 @@ function renderSummary() {
         if(c.status==='none')   noFee+=v;
       });
     });
-    const pending = fee-issued-noFee;
-    tC+=cases; tF+=fee; tI+=issued; tP+=pending; tN+=noFee;
-    const fmt = v => v ? v.toLocaleString() : '—';
+    return { person, cases, fee, issued, noFee, pending: fee-issued-noFee };
+  });
+
+  // Sắp xếp riêng cho tab Tổng hợp (không đụng tới thứ tự của reportData / bảng Report chính).
+  if(summarySort.field) {
+    const key = summarySort.field === 'nofee' ? 'noFee' : summarySort.field;
+    rows.sort((a,b) => summarySort.dir === 'asc' ? a[key]-b[key] : b[key]-a[key]);
+  }
+
+  const fmt = v => v ? v.toLocaleString() : '—';
+  rows.forEach((r, i) => {
+    tC+=r.cases; tF+=r.fee; tI+=r.issued; tP+=r.pending; tN+=r.noFee;
     tbody.innerHTML += `<tr>
       <td style="text-align:center;color:#8896aa">${i+1}</td>
-      <td style="text-align:center"><span style="background:#f0f4ff;color:#4361ee;padding:2px 7px;border-radius:5px;font-size:10.5px;font-weight:700">${person.group}</span></td>
-      <td style="text-align:center;color:#8896aa;font-size:10.5px">${person.msdl}</td>
-      <td style="font-weight:600">${person.name}</td>
-      <td style="text-align:center;font-weight:700">${cases}</td>
-      <td style="text-align:center;color:#1d4ed8;font-weight:700">${fmt(fee)}</td>
-      <td style="text-align:center;color:#15803d;font-weight:700">${fmt(issued)}</td>
-      <td style="text-align:center;color:#a16207;font-weight:700">${fmt(pending)}</td>
-      <td style="text-align:center;color:#be123c;font-weight:700">${fmt(noFee)}</td>
+      <td style="text-align:center"><span style="background:#f0f4ff;color:#4361ee;padding:2px 7px;border-radius:5px;font-size:10.5px;font-weight:700">${r.person.group}</span></td>
+      <td style="text-align:center;color:#8896aa;font-size:10.5px">${r.person.msdl}</td>
+      <td style="font-weight:600">${r.person.name}</td>
+      <td style="text-align:center;font-weight:700">${r.cases}</td>
+      <td style="text-align:center;color:#1d4ed8;font-weight:700">${fmt(r.fee)}</td>
+      <td style="text-align:center;color:#15803d;font-weight:700">${fmt(r.issued)}</td>
+      <td style="text-align:center;color:#a16207;font-weight:700">${fmt(r.pending)}</td>
+      <td style="text-align:center;color:#be123c;font-weight:700">${fmt(r.noFee)}</td>
     </tr>`;
   });
 
-  const fmt = v => v ? v.toLocaleString() : '—';
   tbody.innerHTML += `<tr style="background:#f0f4ff;font-weight:800">
     <td colspan="4" style="text-align:right;padding-right:12px;color:#4361ee">TỔNG</td>
     <td style="text-align:center;color:#7209b7">${tC}</td>
@@ -853,6 +971,33 @@ function renderSummary() {
     <td style="text-align:center;color:#a16207">${fmt(tP)}</td>
     <td style="text-align:center;color:#be123c">${fmt(tN)}</td>
   </tr>`;
+
+  updateSummaryArrows();
+}
+
+// ── Sort riêng cho bảng Tổng hợp: bấm vào tiêu đề cột để sắp theo cột đó, bấm lần nữa
+// để đảo chiều tăng/giảm. Không ảnh hưởng tới thứ tự dòng ở tab Report/Overview.
+let summarySort = { field: null, dir: 'desc' }; // field: 'issued' | 'pending' | 'nofee'
+function toggleSummarySort(field) {
+  if(summarySort.field === field) {
+    summarySort.dir = summarySort.dir === 'desc' ? 'asc' : 'desc';
+  } else {
+    summarySort.field = field;
+    summarySort.dir = 'desc';
+  }
+  renderSummary();
+}
+function updateSummaryArrows() {
+  ['issued','pending','nofee'].forEach(f => {
+    const arrow = document.getElementById('summArrow-' + f);
+    const th = arrow?.closest('th');
+    if(!arrow || !th) return;
+    if(summarySort.field !== f) {
+      arrow.textContent = '⇅'; th.classList.remove('active');
+    } else {
+      arrow.textContent = summarySort.dir === 'desc' ? '▼' : '▲'; th.classList.add('active');
+    }
+  });
 }
 
 // ── Render Overview ──
@@ -945,6 +1090,111 @@ function calcTotal(p) {
 }
 function calcIssued(p) {
   let t=0; Object.values(p.daily).forEach(d=>{if(d.cases)d.cases.forEach(c=>{if(c.status==='issued')t+=Number(c.fee||0);});});return t;
+}
+
+// ── Thu thập toàn bộ case chưa PH (status !== 'issued') của tháng đang xem, kèm tuổi hồ sơ ──
+// statusFilter: nếu truyền, chỉ lấy đúng 1 trạng thái ('paid' cho tab Chờ xử lý); nếu bỏ trống,
+// lấy cả 'none' lẫn 'paid' (dùng cho export "Hồ sơ tồn" — mọi hồ sơ CHƯA phát hành).
+function collectOpenCases(statusFilter) {
+  const month = parseInt(monthSelect.value);
+  const out = [];
+  reportData.forEach((person, pi) => {
+    Object.keys(person.daily || {}).forEach(dStr => {
+      const d = parseInt(dStr);
+      const cases = (person.daily[d] && person.daily[d].cases) || [];
+      cases.forEach((item, ci) => {
+        if(item.status === 'issued') return;
+        if(statusFilter && item.status !== statusFilter) return;
+        out.push({
+          pi, d, ci, person, item,
+          ageDays: caseAgeDays(month, d),
+          ageHours: caseAgeHours(month, d),
+        });
+      });
+    });
+  });
+  out.sort((a,b) => b.ageHours - a.ageHours);
+  return out;
+}
+function ageChipClass(days) {
+  if(days >= 10) return 'hot';
+  if(days >= AGING_THRESHOLD_HOURS/24) return 'warn';
+  return 'ok';
+}
+
+// ── Tab "Hồ sơ chờ xử lý" — gồm cả CF (chưa phí) và CP (có phí, chưa PH) ──
+let pendingFilter = 'all'; // 'all' | 'none' (CF) | 'paid' (CP)
+function setPendingFilter(f) {
+  pendingFilter = f;
+  ['all','none','paid'].forEach(k => {
+    document.getElementById('pfilter-' + k).classList.toggle('active', k === f);
+  });
+  renderPendingTab();
+}
+const PENDING_STATUS_PILL = {
+  none: '<span class="status-pill cf">🔴 CF</span>',
+  paid: '<span class="status-pill cp">🟡 CP</span>',
+};
+function renderPendingTab() {
+  const rows = collectOpenCases(pendingFilter === 'all' ? null : pendingFilter);
+  const tbody = document.getElementById('pendingBody');
+  if(!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:24px;color:#8896aa;font-size:11.5px">
+      🎉 Không có hồ sơ nào đang chờ xử lý trong tháng này.
+    </td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map((r, i) => `
+    <tr>
+      <td style="text-align:center">${i+1}</td>
+      <td style="text-align:center">${esc(r.person.group)}</td>
+      <td style="text-align:center">${esc(r.person.msdl)}</td>
+      <td style="text-align:left;font-weight:600">${esc(r.person.name)}</td>
+      <td style="text-align:center">${PENDING_STATUS_PILL[r.item.status] || esc(r.item.status)}</td>
+      <td style="text-align:center">${r.d}</td>
+      <td style="text-align:right">${Number(r.item.fee||0).toLocaleString()}</td>
+      <td style="text-align:center"><span class="age-chip ${ageChipClass(r.ageDays)}">${r.ageDays} ngày</span></td>
+      <td style="text-align:left;color:#4a5568">${esc(r.item.note||'—')}</td>
+      <td style="text-align:center">
+        <button onclick="markCaseIssuedFromPending(${r.pi},${r.d},${r.ci})"
+          class="btn" style="background:#dcfce7;color:#15803d;padding:4px 8px;font-size:10.5px">🟢 PH</button>
+      </td>
+    </tr>
+  `).join('');
+}
+// Đánh dấu nhanh 1 hồ sơ sang "Phát hành" ngay từ tab "Hồ sơ chờ xử lý", không cần mở lại bảng chính.
+function markCaseIssuedFromPending(pi, d, ci) {
+  if(userRole!=='admin'){openLoginModal();return;}
+  updateCaseStatus(pi, d, ci, 'issued');
+  renderPendingTab();
+}
+
+// ── Xuất Excel "Hồ sơ tồn" — mọi hồ sơ CHƯA phát hành (CF hoặc CP), tồn quá N ngày ──
+function exportTonExcel() {
+  const threshold = Math.max(0, parseInt(document.getElementById('tonThresholdInput').value) || 0);
+  const rows = collectOpenCases().filter(r => r.ageDays >= threshold);
+  if(!rows.length) { alert(`Không có hồ sơ nào tồn quá ${threshold} ngày.`); return; }
+
+  const STATUS_TXT = { none: 'Chưa phí (CF)', paid: 'Có phí, chưa PH (CP)' };
+  const header = ['STT','Mã nhóm','MSDL','Họ tên','Ngày lên HS','Trạng thái','Phí','Số ngày đã chờ','Ghi chú'];
+  const aoa = [header];
+  rows.forEach((r, i) => {
+    aoa.push([
+      i+1, r.person.group, r.person.msdl, r.person.name, r.d,
+      STATUS_TXT[r.item.status] || r.item.status,
+      Number(r.item.fee||0), r.ageDays, r.item.note||'',
+    ]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:5},{wch:10},{wch:10},{wch:24},{wch:11},{wch:18},{wch:12},{wch:12},{wch:24}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'HOSO_TON');
+
+  const month = String(parseInt(monthSelect.value)).padStart(2,'0');
+  const today = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `D07_HOSO_TON_T${month}_2026_tu${threshold}ngay_${today}.xlsx`);
+  logAudit('export_ton', `Xuất báo cáo "Hồ sơ tồn" (≥${threshold} ngày): ${rows.length} hồ sơ`);
 }
 
 // ── Firebase ops ──
@@ -1512,6 +1762,8 @@ function openProposalImportModal() {
   document.getElementById('proposalImportStatus').textContent = '';
   document.getElementById('proposalImportPreview').style.display = 'none';
   document.getElementById('proposalImportPreview').innerHTML = '';
+  document.getElementById('proposalUnmatchedBox').style.display = 'none';
+  document.getElementById('proposalUnmatchedList').innerHTML = '';
   document.getElementById('proposalImportBtn').disabled = true;
   document.getElementById('proposalImportBtn').style.opacity = '.5';
   proposalImportStaged = null; proposalImportActions = null;
@@ -1555,6 +1807,7 @@ function handleProposalFileSelect(evt) {
         statusEl.style.color = '#dc2626';
         statusEl.textContent = '⚠️ Không tìm thấy cột ProposalNum và PolicyStatus trong file. Kiểm tra lại tên cột.';
         btn.disabled = true; btn.style.opacity = '.5';
+        document.getElementById('proposalUnmatchedBox').style.display = 'none';
         return;
       }
 
@@ -1571,11 +1824,13 @@ function handleProposalFileSelect(evt) {
         statusEl.style.color = '#dc2626';
         statusEl.textContent = '⚠️ Không đọc được dòng ProposalNum nào sau dòng tiêu đề.';
         btn.disabled = true; btn.style.opacity = '.5';
+        document.getElementById('proposalUnmatchedBox').style.display = 'none';
         return;
       }
 
       proposalImportStaged = stagedMap;
       proposalImportActions = computeProposalActions(stagedMap);
+      const unmatched = computeUnmatchedProposals(stagedMap);
 
       const n = proposalImportActions.length;
       statusEl.style.color = '#065f46';
@@ -1595,6 +1850,23 @@ function handleProposalFileSelect(evt) {
         `).join('') + (n > 80 ? `<div style="text-align:center;padding:6px;font-size:10.5px;color:#8896aa">... và ${n-80} hồ sơ khác</div>` : '');
       }
       btn.disabled = n === 0; btn.style.opacity = n === 0 ? '.5' : '1';
+
+      // Danh sách hồ sơ có ProposalNum nhưng không thấy trong file hôm nay — để không bị sót.
+      const unmatchedBox = document.getElementById('proposalUnmatchedBox');
+      const unmatchedList = document.getElementById('proposalUnmatchedList');
+      if(unmatched.length) {
+        document.getElementById('proposalUnmatchedCount').textContent = unmatched.length;
+        unmatchedList.innerHTML = unmatched.slice(0,100).map(u => `
+          <div style="display:flex;gap:8px;padding:5px 10px;border-bottom:1px solid #fef3c7;font-size:11px;align-items:center">
+            <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(u.person.name)} <span style="color:#8896aa">· ngày ${u.d}</span></span>
+            <span style="color:#92400e;font-family:monospace;font-size:10px">${esc(u.note)}</span>
+            <span style="font-size:10px;color:#8896aa">${STATUS_LBL[u.item.status]||u.item.status}</span>
+          </div>
+        `).join('') + (unmatched.length > 100 ? `<div style="text-align:center;padding:6px;font-size:10.5px;color:#8896aa">... và ${unmatched.length-100} hồ sơ khác</div>` : '');
+        unmatchedBox.style.display = 'block';
+      } else {
+        unmatchedBox.style.display = 'none';
+      }
     } catch(err) {
       console.error('Proposal parse error:', err);
       statusEl.style.color = '#dc2626';
@@ -1631,6 +1903,28 @@ function computeProposalActions(stagedMap) {
   });
   return actions;
 }
+
+// Danh sách hồ sơ CÓ ghi chú (ProposalNum) trong hệ thống, nhưng ghi chú đó KHÔNG xuất hiện
+// trong file vừa nhập hôm nay — nghĩa là chưa rõ tình trạng mới nhất, dễ bị bỏ sót nếu chỉ
+// nhìn vào danh sách "cần cập nhật". Chỉ xét hồ sơ CHƯA phát hành (đã PH thì không cần theo dõi nữa).
+function computeUnmatchedProposals(stagedMap) {
+  const out = [];
+  reportData.forEach((person, pi) => {
+    Object.keys(person.daily || {}).forEach(dStr => {
+      const d = parseInt(dStr);
+      const cases = (person.daily[d] && person.daily[d].cases) || [];
+      cases.forEach((item, ci) => {
+        const note = String(item.note || '').trim();
+        if(!note) return;
+        if(item.status === 'issued') return;
+        if(stagedMap.has(note)) return; // có trong file — đã xử lý ở computeProposalActions
+        out.push({ pi, d, ci, person, item, note });
+      });
+    });
+  });
+  return out;
+}
+
 
 async function confirmProposalImport() {
   if(!proposalImportActions || !proposalImportActions.length) return;
@@ -1860,6 +2154,8 @@ Object.assign(window, {
   openAddCaseModal,closeAddCaseModal,renderAcTvvList,selectAcTvv,selectAcManual,saveAddCaseModal,
   openTvvImportModal,closeTvvImportModal,handleTvvFileSelect,confirmTvvImport,
   openProposalImportModal,closeProposalImportModal,handleProposalFileSelect,confirmProposalImport,
+  renderPendingTab,markCaseIssuedFromPending,exportTonExcel,setPendingFilter,
+  toggleSummarySort,
 });
 
 // ── Boot ──
