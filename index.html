@@ -1895,7 +1895,7 @@ function computeProposalActions(stagedMap) {
           actions.push({ pi, d, ci, person, item, note, action:'status', before:item.status, after:'issued' });
         } else if(status === 'PS' && item.status !== 'paid') {
           actions.push({ pi, d, ci, person, item, note, action:'status', before:item.status, after:'paid' });
-        } else if((status === 'DC' || status === 'WD') && Number(item.fee||0) !== 0) {
+        } else if((status === 'DC' || status === 'WD' || status === 'PO' || status === 'CF') && Number(item.fee||0) !== 0) {
           actions.push({ pi, d, ci, person, item, note, action:'fee', before:item.fee, after:0 });
         }
       });
