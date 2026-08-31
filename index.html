@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>D07 — Theo Dõi Doanh Số 2026</title>
+  <title>D07 — Theo Dõi Doanh Số</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -339,12 +339,13 @@
 <div id="toolbar">
   <div class="tool-group">
     <span style="font-size:14px;font-weight:800;color:#4361ee;margin-right:4px">D07</span>
-    <span class="tool-label">Doanh số 2026</span>
+    <span class="tool-label" id="doanhSoYearLabel">Doanh số</span>
   </div>
   <div class="tool-sep"></div>
   <div class="tool-group">
     <span class="tool-label">Tháng</span>
     <select id="monthSelect" class="compact"></select>
+    <select id="yearSelect" class="compact"></select>
   </div>
   <div class="tool-group">
     <span class="tool-label">Ngày</span>
@@ -703,7 +704,7 @@ let pendingPersonIds = new Set();
 let personSaveTimers = new Map();
 let unsubscribeMonthListener = null;
 function genId() { return 'p_' + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
-function monthDocRef(month) { return doc(db,'reports',month); }
+function monthDocRef(month) { return doc(db,'reports', `${yearSelect.value}-${parseInt(month)}`); }
 // Danh sách TVV nhúng sẵn (import từ data.xlsx ngày người dùng gửi, 376 dòng) —
 // dùng làm dữ liệu mặc định để nút "+TVV" hoạt động ngay cả khi chưa/không lưu được lên Firestore.
 // Nếu import qua "📥 Nhập data" thành công, dữ liệu Firestore sẽ merge đè lên danh sách này (theo MSDL).
@@ -713,6 +714,7 @@ let tvvDirectory = [...TVV_SEED_DATA]; // [{unit, msdl, name}] — shared TVV ma
 let tvvImportStaged = null; // danh sách đang parse từ Excel, chờ xác nhận lưu
 
 const monthSelect = document.getElementById('monthSelect');
+const yearSelect = document.getElementById('yearSelect');
 
 // ── Clock ──
 function updateClock() {
@@ -731,18 +733,26 @@ setInterval(() => {
   if(document.getElementById('pane-pending')?.classList.contains('active')) renderPendingTab();
 }, 5 * 60 * 1000);
 
-// ── Month options ──
+// ── Month/year options ──
 function initMonthOptions() {
   for(let i = 1; i <= 12; i++) {
     const o = document.createElement('option');
     o.value = i;
-    o.textContent = `T${i}/2026`;
+    o.textContent = `Tháng ${i}`;
     if(i === new Date().getMonth() + 1) o.selected = true;
     monthSelect.appendChild(o);
   }
+  const curY = new Date().getFullYear();
+  for(let y = curY - 1; y <= curY + 1; y++) {
+    const o = document.createElement('option');
+    o.value = y;
+    o.textContent = `${y}`;
+    if(y === curY) o.selected = true;
+    yearSelect.appendChild(o);
+  }
 }
 
-function getDaysInMonth(m) { return new Date(2026, m, 0).getDate(); }
+function getDaysInMonth(m) { return new Date(parseInt(yearSelect.value)||new Date().getFullYear(), m, 0).getDate(); }
 
 // ── Tuổi hồ sơ ──
 // "Ngày lên hồ sơ" chính là ngày (d) mà case được lưu vào trong daily{}, nên tuổi hồ sơ
@@ -750,7 +760,7 @@ function getDaysInMonth(m) { return new Date(2026, m, 0).getDate(); }
 // luôn cho cả những hồ sơ cũ đã nhập từ trước.
 const AGING_THRESHOLD_HOURS = 120; // 5 ngày — dùng để cảnh báo hồ sơ CF (chưa phí) tồn lâu
 function caseAgeHours(month, day) {
-  const caseDate = new Date(2026, month - 1, day, 0, 0, 0);
+  const caseDate = new Date(parseInt(yearSelect.value)||new Date().getFullYear(), month - 1, day, 0, 0, 0);
   return (Date.now() - caseDate.getTime()) / 3600000;
 }
 function caseAgeDays(month, day) { return Math.floor(caseAgeHours(month, day) / 24); }
@@ -801,7 +811,7 @@ function renderHeader() {
   `;
   for(let d = 1; d <= days; d++) {
     if(selectedDay !== 'all' && parseInt(selectedDay) !== d) continue;
-    const dow = new Date(2026, month-1, d).getDay();
+    const dow = new Date(parseInt(yearSelect.value)||new Date().getFullYear(), month-1, d).getDay();
     const cls = dow === 0 ? 'day-sun' : dow === 6 ? 'day-sat' : '';
     row2 += `<th class="${cls}" style="text-align:center;padding:4px 2px;border:1px solid #dde3f8;min-width:68px">${d}</th>`;
   }
@@ -1013,7 +1023,7 @@ function renderOverview() {
     <th style="text-align:left;min-width:160px">TVV</th>`;
   for(let d=1;d<=days;d++) {
     if(selectedDay!=='all' && parseInt(selectedDay)!==d) continue;
-    const dow = new Date(2026,month-1,d).getDay();
+    const dow = new Date(parseInt(yearSelect.value)||new Date().getFullYear(),month-1,d).getDay();
     const cls = dow===0?'day-sun':dow===6?'day-sat':'';
     head += `<th class="${cls}">${d}</th>`;
   }
@@ -1193,7 +1203,7 @@ function exportTonExcel() {
 
   const month = String(parseInt(monthSelect.value)).padStart(2,'0');
   const today = new Date().toISOString().slice(0,10);
-  XLSX.writeFile(wb, `D07_HOSO_TON_T${month}_2026_tu${threshold}ngay_${today}.xlsx`);
+  XLSX.writeFile(wb, `D07_HOSO_TON_T${month}_${yearSelect.value}_tu${threshold}ngay_${today}.xlsx`);
   logAudit('export_ton', `Xuất báo cáo "Hồ sơ tồn" (≥${threshold} ngày): ${rows.length} hồ sơ`);
 }
 
@@ -1276,7 +1286,7 @@ function updateSaveIndicator(state) {
 async function logAudit(action, detail) {
   try {
     await addDoc(collection(db, 'audit_log'), {
-      month: String(monthSelect.value),
+      month: `${yearSelect.value}-${monthSelect.value}`,
       action, detail,
       user: currentUser?.email || 'unknown',
       at: serverTimestamp(),
@@ -1510,7 +1520,7 @@ function initAcDayOptions() {
   let defaultDay = 1;
   const today = new Date();
   if (selectedDay !== 'all') defaultDay = parseInt(selectedDay);
-  else if (today.getFullYear() === 2026 && (today.getMonth() + 1) === month) defaultDay = today.getDate();
+  else if (today.getFullYear() === (parseInt(yearSelect.value)||today.getFullYear()) && (today.getMonth() + 1) === month) defaultDay = today.getDate();
   sel.value = String(Math.min(Math.max(defaultDay, 1), days));
 }
 function openAddCaseModal() {
@@ -2086,7 +2096,7 @@ function exportExcel() {
   });
   const ws=XLSX.utils.aoa_to_sheet(rows);
   XLSX.utils.book_append_sheet(wb,ws,'TONG_HOP');
-  XLSX.writeFile(wb,'D07_TONG_HOP_2026.xlsx');
+  XLSX.writeFile(wb,`D07_TONG_HOP_${yearSelect.value}.xlsx`);
 }
 
 // ── Export Overview tab: ma trận ngày × người, đúng số liệu đang hiển thị ──
@@ -2136,7 +2146,7 @@ function exportOverviewExcel() {
 
   const monthLabel = String(month).padStart(2,'0');
   const dayTag = selectedDay !== 'all' ? `_Ngay${selectedDay}` : '';
-  XLSX.writeFile(wb, `D07_OVERVIEW_T${monthLabel}_2026${dayTag}.xlsx`);
+  XLSX.writeFile(wb, `D07_OVERVIEW_T${monthLabel}_${yearSelect.value}${dayTag}.xlsx`);
 }
 
 // ── Escape helper ──
@@ -2174,6 +2184,21 @@ monthSelect.addEventListener('change', async (e) => {
   monthPrevValue = e.target.value;
   loadMonthData(); initDayFilter();
 });
+
+// Đổi Năm trước đây KHÔNG tải lại dữ liệu (chỉ đổi mỗi giá trị dropdown) — sửa để đổi năm
+// cũng tải lại đúng document reports/{năm}-{tháng} của năm vừa chọn, giống hệt khi đổi tháng.
+yearSelect.addEventListener('change', async () => {
+  if (pendingPersonIds.size) {
+    await flushAllPending();
+  }
+  updateYearLabel();
+  loadMonthData(); initDayFilter();
+});
+function updateYearLabel(){
+  const el = document.getElementById('doanhSoYearLabel');
+  if(el) el.textContent = `Doanh số ${yearSelect.value}`;
+}
+updateYearLabel();
 
 // Cảnh báo nếu người dùng đóng/tải lại trang trong lúc còn dữ liệu chưa lưu xong lên Firestore.
 window.addEventListener('beforeunload', (e) => {
