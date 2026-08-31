@@ -1168,6 +1168,8 @@ function renderPendingTab() {
       <td style="text-align:center">
         <button onclick="markCaseIssuedFromPending(${r.pi},${r.d},${r.ci})"
           class="btn" style="background:#dcfce7;color:#15803d;padding:4px 8px;font-size:10.5px">🟢 PH</button>
+        <button onclick="deleteCaseFromPending(${r.pi},${r.d},${r.ci})"
+          class="btn" style="background:#fee2e2;color:#b91c1c;padding:4px 8px;font-size:10.5px;margin-left:4px">🗑 Xoá</button>
       </td>
     </tr>
   `).join('');
@@ -1176,6 +1178,13 @@ function renderPendingTab() {
 function markCaseIssuedFromPending(pi, d, ci) {
   if(userRole!=='admin'){openLoginModal();return;}
   updateCaseStatus(pi, d, ci, 'issued');
+  renderPendingTab();
+}
+// Xoá nhanh 1 hồ sơ ngay từ tab "Hồ sơ chờ xử lý" — dùng lại đúng hàm deleteCase() nên hồ sơ
+// bị xoá HẲN khỏi report (giống hệt xoá từ bảng chính), rồi vẽ lại tab Pending để hồ sơ biến mất khỏi danh sách.
+function deleteCaseFromPending(pi, d, ci) {
+  if(userRole!=='admin'){openLoginModal();return;}
+  deleteCase(pi, d, ci);
   renderPendingTab();
 }
 
@@ -2164,7 +2173,7 @@ Object.assign(window, {
   openAddCaseModal,closeAddCaseModal,renderAcTvvList,selectAcTvv,selectAcManual,saveAddCaseModal,
   openTvvImportModal,closeTvvImportModal,handleTvvFileSelect,confirmTvvImport,
   openProposalImportModal,closeProposalImportModal,handleProposalFileSelect,confirmProposalImport,
-  renderPendingTab,markCaseIssuedFromPending,exportTonExcel,setPendingFilter,
+  renderPendingTab,markCaseIssuedFromPending,deleteCaseFromPending,exportTonExcel,setPendingFilter,
   toggleSummarySort,
 });
 
