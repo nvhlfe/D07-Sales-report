@@ -1552,7 +1552,17 @@ function renderAcTvvList() {
   const dropdown = document.getElementById('acTvvDropdown');
   if(!q) { dropdown.style.display = 'none'; return; }
 
-  const filtered = tvvDirectory.filter(t =>
+  // Gộp danh sách TVV dùng chung (tvvDirectory) VỚI những người đã có sẵn trong bảng tháng
+  // đang xem (reportData) — vì TVV mới thêm thẳng vào bảng tháng (chưa kịp có trong
+  // tvvDirectory) vẫn phải tìm được ở đây, nếu không "+HS" sẽ báo "không tìm thấy tên"
+  // dù người đó rõ ràng đang có trong bảng.
+  const merged = new Map(tvvDirectory.map(t => [t.msdl, t]));
+  reportData.forEach(p => {
+    if(p.msdl && !merged.has(p.msdl)) merged.set(p.msdl, { msdl: p.msdl, name: p.name, unit: p.group });
+  });
+  const combined = [...merged.values()];
+
+  const filtered = combined.filter(t =>
     normalizeVi(t.msdl).includes(q) || normalizeVi(t.name).includes(q)
   ).slice(0, 50);
 
@@ -1577,7 +1587,12 @@ function renderAcTvvList() {
   dropdown.style.display = 'block';
 }
 function selectAcTvv(msdl) {
-  const item = tvvDirectory.find(t => t.msdl === msdl);
+  // Tra theo đúng thứ tự đã gộp ở renderAcTvvList(): tvvDirectory trước, reportData sau.
+  let item = tvvDirectory.find(t => t.msdl === msdl);
+  if(!item) {
+    const p = reportData.find(p => p.msdl === msdl);
+    if(p) item = { msdl: p.msdl, name: p.name, unit: p.group };
+  }
   if(!item) return;
   acSelectedTvv = { msdl: item.msdl, name: item.name, unit: item.unit };
   document.getElementById('acTvvSearch').value = item.name;
