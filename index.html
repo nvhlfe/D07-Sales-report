@@ -373,7 +373,7 @@
   <div class="tool-group">
     <button onclick="exportExcel()" class="btn btn-export">⬇ Excel</button>
     <button onclick="openTvvImportModal()" class="btn" style="background:#e0f2fe;color:#075985;">📥 Nhập data</button>
-    <button onclick="openProposalImportModal()" class="btn" style="background:#fef3c7;color:#92400e;">📄 Nhập Proposal</button>
+    <button onclick="openProposalImportModal()" class="btn" style="background:#fef3c7;color:#92400e;">🔗 Đối chiếu Proposal</button>
     <button onclick="openTvvPicker()" class="btn btn-purple">＋ TVV</button>
     <button onclick="openAddCaseModal()" class="btn btn-green">＋ HS</button>
   </div>
@@ -532,32 +532,62 @@
   </div>
 </div>
 
-<!-- ── PROPOSAL IMPORT MODAL (upload hàng ngày) ── -->
+<!-- ── PROPOSAL RECONCILE MODAL (đối chiếu tự động với daily_sales_tvv) ── -->
 <div id="proposalImportModal" class="modal-bg" style="display:none">
-  <div class="modal-box" style="max-width:620px">
+  <div class="modal-box" style="max-width:680px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <div>
-        <div class="modal-title" style="margin-bottom:2px">📄 Nhập Proposal (upload hàng ngày)</div>
-        <div style="font-size:11px;color:#8896aa">File Excel cần có cột ProposalNum và PolicyStatus. Hồ sơ trong Sales Report được khớp qua ô "ghi chú" (note) = ProposalNum.</div>
+        <div class="modal-title" style="margin-bottom:2px">🔗 Đối chiếu Proposal</div>
+        <div style="font-size:11px;color:#8896aa">Lấy sheet Proposal từ dữ liệu TVV Hàng Ngày (daily_sales_tvv) — không cần upload file riêng. Khớp theo ProposalNum (ghi chú) + MSDL/AGCode của từng TVV.</div>
       </div>
       <button onclick="closeProposalImportModal()" style="width:28px;height:28px;border-radius:50%;border:none;background:#f0f4ff;cursor:pointer;font-size:14px">✕</button>
     </div>
-    <input type="file" id="proposalFileInput" accept=".xlsx,.xls" class="form-input" onchange="handleProposalFileSelect(event)" style="padding:7px 10px" />
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">
+      <label style="font-size:11.5px;color:#4a5568;white-space:nowrap">Dữ liệu ngày:</label>
+      <select id="proposalDateSelect" class="form-input" style="padding:6px 8px;flex:1" onchange="handleProposalDateChange()"></select>
+      <button onclick="runProposalReconcile()" class="btn" style="background:#eef2ff;color:#4361ee;white-space:nowrap">🔍 Quét đối chiếu</button>
+    </div>
     <div id="proposalImportStatus" style="font-size:11.5px;color:#4a5568;min-height:18px;margin:8px 0"></div>
-    <div id="proposalImportPreview" style="max-height:280px;overflow-y:auto;border:1px solid #e8ecf4;border-radius:8px;display:none;margin-bottom:12px"></div>
+
+    <div id="proposalStatusBox" style="display:none;margin-bottom:12px">
+      <div style="font-size:11.5px;font-weight:700;color:#166534;background:#dcfce7;padding:6px 10px;border-radius:8px 8px 0 0;border:1px solid #bbf7d0">
+        ✓ <span id="proposalStatusCount">0</span> hồ sơ cần cập nhật trạng thái (IF/PS/DC/WD)
+      </div>
+      <div id="proposalImportPreview" style="max-height:220px;overflow-y:auto;border:1px solid #e8ecf4;border-top:none;border-radius:0 0 8px 8px"></div>
+    </div>
+
+    <div id="proposalAddBox" style="display:none;margin-bottom:12px">
+      <div style="font-size:11.5px;font-weight:700;color:#075985;background:#e0f2fe;padding:6px 10px;border-radius:8px 8px 0 0;border:1px solid #bae6fd">
+        ➕ <span id="proposalAddCount">0</span> hồ sơ có ở Proposal nhưng THIẾU trong Sales Report — sẽ tự thêm, phí lấy theo IP Sub của Proposal
+      </div>
+      <div id="proposalAddList" style="max-height:220px;overflow-y:auto;border:1px solid #bae6fd;border-top:none;border-radius:0 0 8px 8px"></div>
+    </div>
+
+    <div id="proposalFixBox" style="display:none;margin-bottom:12px">
+      <div style="font-size:11.5px;font-weight:700;color:#9f1239;background:#ffe4e6;padding:6px 10px;border-radius:8px 8px 0 0;border:1px solid #fecdd3">
+        🔀 <span id="proposalFixCount">0</span> hồ sơ SAI TVV (ghi chú trùng nhưng đứng tên khác Proposal) — sẽ chuyển sang đúng người kèm phí theo Proposal, kiểm kỹ trước khi áp dụng
+      </div>
+      <div id="proposalFixList" style="max-height:220px;overflow-y:auto;border:1px solid #fecdd3;border-top:none;border-radius:0 0 8px 8px"></div>
+    </div>
+
+    <div id="proposalFeeBox" style="display:none;margin-bottom:12px">
+      <div style="font-size:11.5px;font-weight:700;color:#854d0e;background:#fef9c3;padding:6px 10px;border-radius:8px 8px 0 0;border:1px solid #fef08a">
+        💰 <span id="proposalFeeCount">0</span> hồ sơ PHÍ SAI lệch so với IP Sub trong Proposal — sẽ sửa lại đúng số
+      </div>
+      <div id="proposalFeeList" style="max-height:220px;overflow-y:auto;border:1px solid #fef08a;border-top:none;border-radius:0 0 8px 8px"></div>
+    </div>
+
     <div id="proposalUnmatchedBox" style="display:none;margin-bottom:12px">
       <div style="font-size:11.5px;font-weight:700;color:#92400e;background:#fef3c7;padding:6px 10px;border-radius:8px 8px 0 0;border:1px solid #fde68a;border-bottom:none">
-        ⚠️ <span id="proposalUnmatchedCount">0</span> hồ sơ có ProposalNum (ghi chú) nhưng KHÔNG thấy trong file vừa nhập — kiểm tra lại kẻo bị sót
+        ⚠️ <span id="proposalUnmatchedCount">0</span> hồ sơ có ghi chú nhưng KHÔNG thấy trong Proposal ngày đã chọn — kiểm tra lại kẻo bị sót
       </div>
       <div id="proposalUnmatchedList" style="max-height:180px;overflow-y:auto;border:1px solid #fde68a;border-top:none;border-radius:0 0 8px 8px"></div>
     </div>
-    <button onclick="confirmProposalImport()" id="proposalImportBtn" class="modal-save-btn" disabled style="opacity:.5">Áp dụng thay đổi</button>
+
+    <button onclick="confirmProposalImport()" id="proposalImportBtn" class="modal-save-btn" disabled style="opacity:.5">Áp dụng tất cả thay đổi</button>
     <div style="font-size:10.5px;color:#8896aa;margin-top:8px;line-height:1.5">
-      Quy tắc: nếu ProposalNum trong file trùng với ghi chú của hồ sơ →
-      <b>IF</b> → chuyển trạng thái thành <b>Phát hành (PH)</b>,
-      <b>PS</b> → chuyển thành <b>Có phí chưa PH (CP)</b>,
-      <b>DC/WD</b> → phí về <b>0</b>.
-      Hồ sơ chưa có ghi chú hoặc ProposalNum không có trong file sẽ được giữ nguyên.
+      Quy tắc trạng thái: <b>IF</b> → <b>Phát hành (PH)</b>, <b>PS</b> → <b>Có phí chưa PH (CP)</b>, <b>DC/WD</b> → phí về <b>0</b>.
+      Hồ sơ chưa có ghi chú, hoặc ghi chú không khớp Proposal ngày đã chọn, sẽ được giữ nguyên hoàn toàn.
     </div>
   </div>
 </div>
@@ -674,7 +704,7 @@
 <!-- ══════════════════════════════════════════════ -->
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import { getFirestore, doc, setDoc, deleteField, onSnapshot, addDoc, collection, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import { getFirestore, doc, getDoc, setDoc, deleteField, onSnapshot, addDoc, collection, getDocs, query, where, documentId, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 
 const firebaseConfig = {
@@ -1780,217 +1810,350 @@ async function confirmTvvImport() {
   }
 }
 
-// ── Nhập Proposal (upload hàng ngày) ──
-// Mapping: ProposalNum (file Excel) ↔ ghi chú (note) của từng hồ sơ trong Sales Report.
-// Quy tắc do người dùng yêu cầu:
-//  - Trùng ProposalNum, cột PolicyStatus = "IF"      → status = issued (PH)
-//  - Trùng ProposalNum, cột PolicyStatus = "PS"       → status = paid (CP)
-//  - Trùng ProposalNum, cột PolicyStatus = "DC"/"WD"  → phí (fee) = 0
-//  - Không có ghi chú, hoặc ProposalNum không có trong file → giữ nguyên, không đụng tới
-let proposalImportStaged = null; // Map<proposalNum, policyStatus> đang parse từ Excel, chờ xác nhận
-let proposalImportActions = null; // danh sách thay đổi sẽ áp dụng, tính từ proposalImportStaged
+// ── Đối chiếu Proposal (tự động, nguồn: daily_sales_tvv — không cần upload file) ──
+// Nguồn: sheet Proposal trong daily_sales_tvv/{YYYY-MM-DD}, mỗi dòng có { proposalNum, msdl, agName, unit, status, product }.
+// Khớp với hồ sơ Sales Report qua ghi chú (note) = ProposalNum, VÀ MSDL của TVV khớp nhau.
+//  - Ghi chú khớp, MSDL khớp, trạng thái khác → cập nhật trạng thái (IF→PH, PS→CP, DC/WD→phí 0). Không quan tâm MSDL cho việc này vì trạng thái là của hồ sơ, không phải của riêng ai.
+//  - Ghi chú khớp Proposal, nhưng KHÔNG có hồ sơ nào của đúng MSDL đó trong Sales Report → THIẾU, tự thêm dòng mới cho đúng người.
+//  - Có hồ sơ trong Sales Report với ghi chú đó, nhưng MSDL không nằm trong danh sách MSDL hợp lệ của Proposal cho ghi chú đó → SAI người, tự chuyển sang đúng người (giữ nguyên phí đã nhập).
+//  - Ghi chú không xuất hiện trong Proposal ngày đã chọn → giữ nguyên, chỉ cảnh báo.
+const COLLECTION_DAILY = 'daily_sales_tvv';
+let proposalDatesCache = [];      // các ngày (YYYY-MM-DD) có dữ liệu trong tháng đang xem
+let proposalRowsCache = null;     // proposalRows của ngày đang chọn
+let proposalStatusActions = null; // [{pi,d,ci,person,item,note,action,before,after}]
+let proposalAddActions = null;    // [{note,msdl,agName,unit,status,product,day}]
+let proposalFixActions = null;    // [{note,msdl,agName,unit,status,product,fee,oldFee,wrongPi,wrongD,wrongCi,wrongPerson,wrongItem}]
+let proposalFeeActions = null;    // [{pi,d,ci,person,item,note,before,after}] — phí lệch so với IP Sub trên dòng đã đúng người
+let proposalUnmatchedList = null;
 
-function openProposalImportModal() {
+function mapRawStatus(raw) {
+  if(raw === 'IF') return 'issued';
+  if(raw === 'PS') return 'paid';
+  return null; // DC/WD/khác: không đổi status, chỉ có thể đưa phí về 0 (xử lý riêng)
+}
+// Proposal lưu "IP Sub" theo đơn vị triệu VND (vd 8.145 = 8.145.000đ) — quy đổi sang VND để khớp
+// đơn vị của trường "phí" trong Sales Report. IP Sub dùng thay vì IP Net vì IP Net = 0 với hồ sơ
+// đang ở trạng thái PS (đã đóng phí, chưa phát hành) — dùng IP Net sẽ làm mất phí của các case này.
+function feeFromRow(row) { return Math.round(Number(row?.ipSub||0) * 1000000); }
+
+async function openProposalImportModal() {
   if(userRole!=='admin'){openLoginModal();return;}
-  document.getElementById('proposalFileInput').value = '';
-  document.getElementById('proposalImportStatus').textContent = '';
-  document.getElementById('proposalImportPreview').style.display = 'none';
-  document.getElementById('proposalImportPreview').innerHTML = '';
+  document.getElementById('proposalImportStatus').textContent = 'Đang tải danh sách ngày có dữ liệu...';
+  document.getElementById('proposalStatusBox').style.display = 'none';
+  document.getElementById('proposalAddBox').style.display = 'none';
+  document.getElementById('proposalFixBox').style.display = 'none';
+  document.getElementById('proposalFeeBox').style.display = 'none';
   document.getElementById('proposalUnmatchedBox').style.display = 'none';
-  document.getElementById('proposalUnmatchedList').innerHTML = '';
   document.getElementById('proposalImportBtn').disabled = true;
   document.getElementById('proposalImportBtn').style.opacity = '.5';
-  proposalImportStaged = null; proposalImportActions = null;
+  proposalStatusActions = null; proposalAddActions = null; proposalFixActions = null; proposalFeeActions = null; proposalUnmatchedList = null;
   document.getElementById('proposalImportModal').style.display = 'flex';
+
+  try {
+    const yyyy = String(yearSelect.value);
+    const mm = String(parseInt(monthSelect.value)).padStart(2,'0');
+    const prefix = `${yyyy}-${mm}`;
+    const q = query(collection(db, COLLECTION_DAILY), where(documentId(),'>=',prefix+'-00'), where(documentId(),'<=',prefix+'-99'));
+    const snaps = await getDocs(q);
+    const dates = [];
+    snaps.forEach(s => dates.push(s.id));
+    dates.sort();
+    proposalDatesCache = dates;
+    const sel = document.getElementById('proposalDateSelect');
+    if(!dates.length) {
+      sel.innerHTML = `<option value="">— không có dữ liệu TVV Hàng Ngày cho tháng ${mm}/${yyyy} —</option>`;
+      document.getElementById('proposalImportStatus').textContent = '⚠️ Chưa có dữ liệu TVV Hàng Ngày (daily_sales_tvv) cho tháng này. Upload ở tab "TVV Hàng Ngày" trước.';
+      return;
+    }
+    sel.innerHTML = dates.map(d => `<option value="${d}" ${d===dates[dates.length-1]?'selected':''}>${d}</option>`).join('');
+    document.getElementById('proposalImportStatus').textContent = '';
+    await runProposalReconcile();
+  } catch(e) {
+    console.error('Load daily_sales_tvv dates error:', e);
+    document.getElementById('proposalImportStatus').textContent = '⚠️ Lỗi tải danh sách ngày: ' + (e?.code || e?.message || 'không rõ');
+  }
 }
 function closeProposalImportModal() { document.getElementById('proposalImportModal').style.display = 'none'; }
+function handleProposalDateChange() { runProposalReconcile(); }
 
-// Nhận diện cột: so khớp CHÍNH XÁC (sau khi bỏ dấu/khoảng trắng) để không nhầm
-// "PolicyStatus" với "CurrentPolicyStatus" (cột này KHÔNG dùng để mapping).
-function detectProposalColumns(headerRow) {
-  const norm = headerRow.map(h => normalizeVi(h).replace(/[^a-z0-9]/g,''));
-  const findExact = (name) => norm.findIndex(h => h === name);
-  return {
-    proposalNum: findExact('proposalnum'),
-    policyStatus: findExact('policystatus'),
-  };
-}
-
-function handleProposalFileSelect(evt) {
-  const file = evt.target.files[0];
+async function runProposalReconcile() {
+  const dateStr = document.getElementById('proposalDateSelect').value;
   const statusEl = document.getElementById('proposalImportStatus');
-  const previewEl = document.getElementById('proposalImportPreview');
-  const btn = document.getElementById('proposalImportBtn');
-  if(!file) return;
-
+  if(!dateStr) return;
   statusEl.style.color = '#4a5568';
-  statusEl.textContent = 'Đang đọc file...';
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    try {
-      const wb = XLSX.read(e.target.result, { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-
-      let headerIdx = -1, cols = null;
-      for(let i = 0; i < Math.min(5, rows.length); i++) {
-        const c = detectProposalColumns(rows[i]);
-        if(c.proposalNum >= 0 && c.policyStatus >= 0) { headerIdx = i; cols = c; break; }
-      }
-      if(headerIdx === -1) {
-        statusEl.style.color = '#dc2626';
-        statusEl.textContent = '⚠️ Không tìm thấy cột ProposalNum và PolicyStatus trong file. Kiểm tra lại tên cột.';
-        btn.disabled = true; btn.style.opacity = '.5';
-        document.getElementById('proposalUnmatchedBox').style.display = 'none';
-        return;
-      }
-
-      const stagedMap = new Map(); // proposalNum(string) -> policyStatus(UPPER)
-      for(let i = headerIdx + 1; i < rows.length; i++) {
-        const r = rows[i];
-        const proposalNum = String(r[cols.proposalNum] ?? '').trim();
-        const policyStatus = String(r[cols.policyStatus] ?? '').trim().toUpperCase();
-        if(!proposalNum) continue;
-        stagedMap.set(proposalNum, policyStatus);
-      }
-
-      if(!stagedMap.size) {
-        statusEl.style.color = '#dc2626';
-        statusEl.textContent = '⚠️ Không đọc được dòng ProposalNum nào sau dòng tiêu đề.';
-        btn.disabled = true; btn.style.opacity = '.5';
-        document.getElementById('proposalUnmatchedBox').style.display = 'none';
-        return;
-      }
-
-      proposalImportStaged = stagedMap;
-      proposalImportActions = computeProposalActions(stagedMap);
-      const unmatched = computeUnmatchedProposals(stagedMap);
-
-      const n = proposalImportActions.length;
-      statusEl.style.color = '#065f46';
-      statusEl.textContent = `✓ Đọc được ${stagedMap.size} Proposal (dòng tiêu đề: dòng ${headerIdx+1}) — khớp được ${n} hồ sơ cần cập nhật.`;
-
-      previewEl.style.display = 'block';
-      if(!n) {
-        previewEl.innerHTML = `<div style="padding:14px;text-align:center;font-size:11.5px;color:#8896aa">Không có hồ sơ nào cần cập nhật (không trùng ghi chú, hoặc trạng thái không đổi).</div>`;
-      } else {
-        const lbl = { issued: 'Phát hành (PH)', paid: 'Có phí chưa PH (CP)', fee0: 'Phí → 0' };
-        previewEl.innerHTML = proposalImportActions.slice(0,80).map(a => `
-          <div style="display:flex;gap:8px;padding:5px 10px;border-bottom:1px solid #f0f4ff;font-size:11px;align-items:center">
-            <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.person.name)} <span style="color:#8896aa">· ngày ${a.d}</span></span>
-            <span style="color:#8896aa;font-family:monospace;font-size:10px">${esc(a.note)}</span>
-            <span style="font-weight:700;color:${a.action==='fee'?'#be123c':'#15803d'}">${lbl[a.action==='fee'?'fee0':a.after]}</span>
-          </div>
-        `).join('') + (n > 80 ? `<div style="text-align:center;padding:6px;font-size:10.5px;color:#8896aa">... và ${n-80} hồ sơ khác</div>` : '');
-      }
-      btn.disabled = n === 0; btn.style.opacity = n === 0 ? '.5' : '1';
-
-      // Danh sách hồ sơ có ProposalNum nhưng không thấy trong file hôm nay — để không bị sót.
-      const unmatchedBox = document.getElementById('proposalUnmatchedBox');
-      const unmatchedList = document.getElementById('proposalUnmatchedList');
-      if(unmatched.length) {
-        document.getElementById('proposalUnmatchedCount').textContent = unmatched.length;
-        unmatchedList.innerHTML = unmatched.slice(0,100).map(u => `
-          <div style="display:flex;gap:8px;padding:5px 10px;border-bottom:1px solid #fef3c7;font-size:11px;align-items:center">
-            <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(u.person.name)} <span style="color:#8896aa">· ngày ${u.d}</span></span>
-            <span style="color:#92400e;font-family:monospace;font-size:10px">${esc(u.note)}</span>
-            <span style="font-size:10px;color:#8896aa">${STATUS_LBL[u.item.status]||u.item.status}</span>
-          </div>
-        `).join('') + (unmatched.length > 100 ? `<div style="text-align:center;padding:6px;font-size:10.5px;color:#8896aa">... và ${unmatched.length-100} hồ sơ khác</div>` : '');
-        unmatchedBox.style.display = 'block';
-      } else {
-        unmatchedBox.style.display = 'none';
-      }
-    } catch(err) {
-      console.error('Proposal parse error:', err);
+  statusEl.textContent = 'Đang tải & đối chiếu...';
+  document.getElementById('proposalImportBtn').disabled = true;
+  document.getElementById('proposalImportBtn').style.opacity = '.5';
+  try {
+    const snap = await getDoc(doc(db, COLLECTION_DAILY, dateStr));
+    if(!snap.exists()) { statusEl.textContent = '⚠️ Không đọc được dữ liệu ngày này.'; return; }
+    const data = snap.data();
+    const proposalRows = data.proposalRows || [];
+    proposalRows.forEach(r => { if(r.msdl===undefined && r.agCode!==undefined) r.msdl = r.agCode; }); // dữ liệu ngày cũ trước khi TVV Hàng Ngày đổi tên trường sang msdl
+    proposalRowsCache = proposalRows;
+    if(!proposalRows.length) {
       statusEl.style.color = '#dc2626';
-      statusEl.textContent = '⚠️ Lỗi đọc file Excel. Kiểm tra định dạng file (.xlsx/.xls).';
-      btn.disabled = true; btn.style.opacity = '.5';
+      statusEl.textContent = '⚠️ Ngày này không có sheet Proposal (hoặc rỗng).';
+      return;
     }
-  };
-  reader.readAsArrayBuffer(file);
-}
 
-// Tính danh sách thay đổi cần áp dụng, dựa trên reportData đang có trong bộ nhớ (tháng
-// đang mở). Chỉ những hồ sơ CÓ ghi chú VÀ ghi chú đó khớp đúng 1 ProposalNum trong file
-// mới được xét; hồ sơ không khớp giữ nguyên hoàn toàn (không reset về CF).
-function computeProposalActions(stagedMap) {
-  const actions = [];
-  reportData.forEach((person, pi) => {
-    Object.keys(person.daily || {}).forEach(dStr => {
-      const d = parseInt(dStr);
-      const cases = (person.daily[d] && person.daily[d].cases) || [];
-      cases.forEach((item, ci) => {
-        const note = String(item.note || '').trim();
-        if(!note) return;                      // chưa nhập số proposal — giữ nguyên CF
-        if(!stagedMap.has(note)) return;        // proposal không có trong file hôm nay — giữ nguyên
-        const status = stagedMap.get(note);     // IF / PS / DC / WD / ...
-        if(status === 'IF' && item.status !== 'issued') {
-          actions.push({ pi, d, ci, person, item, note, action:'status', before:item.status, after:'issued' });
-        } else if(status === 'PS' && item.status !== 'paid') {
-          actions.push({ pi, d, ci, person, item, note, action:'status', before:item.status, after:'paid' });
-        } else if((status === 'DC' || status === 'WD') && Number(item.fee||0) !== 0) {
-          actions.push({ pi, d, ci, person, item, note, action:'fee', before:item.fee, after:0 });
+    // proposalNum -> Map<msdl, {msdl, agName, unit, status, product}> (loại trùng, giữ dòng cuối)
+    const byNote = new Map();
+    proposalRows.forEach(r => {
+      if(!r.proposalNum || !r.msdl) return;
+      if(!byNote.has(r.proposalNum)) byNote.set(r.proposalNum, new Map());
+      byNote.get(r.proposalNum).set(r.msdl, r);
+    });
+    // proposalNum -> trạng thái đại diện (dùng dòng đầu tiên có status IF/PS, trạng thái là của hồ sơ chứ không phải của riêng 1 TVV)
+    const statusByNote = new Map();
+    proposalRows.forEach(r => { if(r.proposalNum && !statusByNote.has(r.proposalNum)) statusByNote.set(r.proposalNum, r.status); });
+
+    // Gom mọi case entry trong Sales Report đang có ghi chú, để biết ai đã có / ai đang giữ sai.
+    const casesByNote = new Map(); // note -> [{pi,d,ci,person,item}]
+    reportData.forEach((person, pi) => {
+      Object.keys(person.daily || {}).forEach(dStr => {
+        const d = parseInt(dStr);
+        const cases = (person.daily[d] && person.daily[d].cases) || [];
+        cases.forEach((item, ci) => {
+          const note = String(item.note || '').trim();
+          if(!note) return;
+          if(!casesByNote.has(note)) casesByNote.set(note, []);
+          casesByNote.get(note).push({ pi, d, ci, person, item });
+        });
+      });
+    });
+
+    // 1) Cập nhật trạng thái (áp dụng cho MỌI case entry có ghi chú khớp, không phân biệt MSDL đúng/sai —
+    //    sẽ đồng bộ luôn cả entry đang chờ "fix" bên dưới, entry đó sau khi fix vẫn giữ trạng thái mới).
+    const statusActions = [];
+    const dcWdNotes = new Set(); // để feeActions bên dưới không đụng vào case đã bị đưa phí về 0 ở đây
+    casesByNote.forEach((entries, note) => {
+      if(!statusByNote.has(note)) return;
+      const raw = statusByNote.get(note);
+      const mapped = mapRawStatus(raw);
+      if(raw === 'DC' || raw === 'WD') dcWdNotes.add(note);
+      entries.forEach(({pi,d,ci,person,item}) => {
+        if(mapped && item.status !== mapped) {
+          statusActions.push({ pi,d,ci,person,item, note, action:'status', before:item.status, after:mapped });
+        } else if((raw === 'DC' || raw === 'WD') && Number(item.fee||0) !== 0) {
+          statusActions.push({ pi,d,ci,person,item, note, action:'fee', before:item.fee, after:0 });
         }
       });
     });
-  });
-  return actions;
-}
 
-// Danh sách hồ sơ CÓ ghi chú (ProposalNum) trong hệ thống, nhưng ghi chú đó KHÔNG xuất hiện
-// trong file vừa nhập hôm nay — nghĩa là chưa rõ tình trạng mới nhất, dễ bị bỏ sót nếu chỉ
-// nhìn vào danh sách "cần cập nhật". Chỉ xét hồ sơ CHƯA phát hành (đã PH thì không cần theo dõi nữa).
-function computeUnmatchedProposals(stagedMap) {
-  const out = [];
-  reportData.forEach((person, pi) => {
-    Object.keys(person.daily || {}).forEach(dStr => {
-      const d = parseInt(dStr);
-      const cases = (person.daily[d] && person.daily[d].cases) || [];
-      cases.forEach((item, ci) => {
-        const note = String(item.note || '').trim();
-        if(!note) return;
-        if(item.status === 'issued') return;
-        if(stagedMap.has(note)) return; // có trong file — đã xử lý ở computeProposalActions
-        out.push({ pi, d, ci, person, item, note });
+    // 2) Thiếu / Sai người — chỉ xét trên tập MSDL "đúng" theo Proposal cho từng ghi chú.
+    const addActions = [];
+    const fixActions = [];
+    byNote.forEach((agMap, note) => {
+      const correctMsdls = [...agMap.keys()];
+      const entries = casesByNote.get(note) || [];
+      // MSDL nào trong entries đã đúng (khớp 1 trong correctMsdls)
+      const matchedMsdls = new Set(entries.filter(e => agMap.has(e.person.msdl)).map(e => e.person.msdl));
+      const wrongEntries = entries.filter(e => !agMap.has(e.person.msdl));
+      const missingMsdls = correctMsdls.filter(ag => !matchedMsdls.has(ag));
+      // Ưu tiên ghép entry-sai vào chỗ MSDL-thiếu (di chuyển, điền phí theo IP Sub của Proposal)
+      missingMsdls.forEach((msdl, idx) => {
+        const row = agMap.get(msdl);
+        const status = mapRawStatus(row.status) || 'none';
+        const fee = feeFromRow(row);
+        if(idx < wrongEntries.length) {
+          const w = wrongEntries[idx];
+          fixActions.push({
+            note, msdl, agName: row.agName, unit: row.unit, status, product: row.product, fee, oldFee: Number(w.item.fee||0),
+            wrongPi:w.pi, wrongD:w.d, wrongCi:w.ci, wrongPerson:w.person, wrongItem:w.item
+          });
+        } else {
+          addActions.push({ note, msdl, agName: row.agName, unit: row.unit, status, product: row.product, fee, proposalDate: row.proposalDate });
+        }
       });
     });
-  });
-  return out;
+
+    // 2b) Phí sai lệch so với Proposal (IP Sub) trên các dòng đã đứng ĐÚNG người, ĐÚNG ghi chú —
+    //     bỏ qua case DC/WD (đã đưa phí về 0 ở statusActions) và case Proposal chưa có IP Sub (>0).
+    const feeActions = [];
+    byNote.forEach((agMap, note) => {
+      if(dcWdNotes.has(note)) return;
+      const entries = casesByNote.get(note) || [];
+      entries.forEach(e => {
+        const row = agMap.get(e.person.msdl);
+        if(!row) return; // không đúng người — đã xử lý ở fixActions, không đụng phí ở đây
+        const correctFee = feeFromRow(row);
+        const curFee = Number(e.item.fee||0);
+        if(correctFee > 0 && Math.abs(correctFee - curFee) > 500) {
+          feeActions.push({ pi:e.pi, d:e.d, ci:e.ci, person:e.person, item:e.item, note, before: curFee, after: correctFee });
+        }
+      });
+    });
+
+    proposalStatusActions = statusActions;
+    proposalAddActions = addActions;
+    proposalFixActions = fixActions;
+    proposalFeeActions = feeActions;
+
+    // 3) Cảnh báo: ghi chú có trong Sales Report (chưa PH), KHÔNG thấy trong Proposal ngày này
+    const unmatched = [];
+    casesByNote.forEach((entries, note) => {
+      if(byNote.has(note)) return;
+      entries.forEach(e => { if(e.item.status !== 'issued') unmatched.push({...e, note}); });
+    });
+    proposalUnmatchedList = unmatched;
+
+    renderProposalReconcilePreview();
+    statusEl.style.color = '#065f46';
+    statusEl.textContent = `✓ Đối chiếu ${proposalRows.length} dòng Proposal ngày ${dateStr}.`;
+    const totalActions = statusActions.length + addActions.length + fixActions.length + feeActions.length;
+    document.getElementById('proposalImportBtn').disabled = totalActions === 0;
+    document.getElementById('proposalImportBtn').style.opacity = totalActions === 0 ? '.5' : '1';
+  } catch(e) {
+    console.error('Proposal reconcile error:', e);
+    statusEl.style.color = '#dc2626';
+    statusEl.textContent = '⚠️ Lỗi đối chiếu: ' + (e?.code || e?.message || 'không rõ nguyên nhân');
+  }
 }
 
+function renderProposalReconcilePreview() {
+  const lbl = { issued: 'Phát hành (PH)', paid: 'Có phí chưa PH (CP)', fee0: 'Phí → 0' };
+
+  const sBox = document.getElementById('proposalStatusBox'), sList = document.getElementById('proposalImportPreview');
+  if(proposalStatusActions.length) {
+    document.getElementById('proposalStatusCount').textContent = proposalStatusActions.length;
+    sList.innerHTML = proposalStatusActions.slice(0,80).map(a => `
+      <div style="display:flex;gap:8px;padding:5px 10px;border-bottom:1px solid #f0f4ff;font-size:11px;align-items:center">
+        <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.person.name)} <span style="color:#8896aa">· ngày ${a.d}</span></span>
+        <span style="color:#8896aa;font-family:monospace;font-size:10px">${esc(a.note)}</span>
+        <span style="font-weight:700;color:${a.action==='fee'?'#be123c':'#15803d'}">${lbl[a.action==='fee'?'fee0':a.after]}</span>
+      </div>
+    `).join('') + (proposalStatusActions.length>80?`<div style="text-align:center;padding:6px;font-size:10.5px;color:#8896aa">... và ${proposalStatusActions.length-80} hồ sơ khác</div>`:'');
+    sBox.style.display = 'block';
+  } else sBox.style.display = 'none';
+
+  const aBox = document.getElementById('proposalAddBox'), aList = document.getElementById('proposalAddList');
+  if(proposalAddActions.length) {
+    document.getElementById('proposalAddCount').textContent = proposalAddActions.length;
+    aList.innerHTML = proposalAddActions.slice(0,80).map(a => `
+      <div style="display:flex;gap:8px;padding:5px 10px;border-bottom:1px solid #e0f2fe;font-size:11px;align-items:center">
+        <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.agName||a.msdl)} <span style="color:#8896aa">· MSDL ${esc(a.msdl)}</span></span>
+        <span style="color:#8896aa;font-family:monospace;font-size:10px">${esc(a.note)}</span>
+        <span style="color:#0369a1;font-weight:700">${Number(a.fee||0).toLocaleString()}đ</span>
+        <span style="font-weight:700;color:#0369a1">${lbl[a.status==='issued'?'issued':a.status==='paid'?'paid':'fee0'] || 'CF'}</span>
+      </div>
+    `).join('') + (proposalAddActions.length>80?`<div style="text-align:center;padding:6px;font-size:10.5px;color:#8896aa">... và ${proposalAddActions.length-80} hồ sơ khác</div>`:'');
+    aBox.style.display = 'block';
+  } else aBox.style.display = 'none';
+
+  const fBox = document.getElementById('proposalFixBox'), fList = document.getElementById('proposalFixList');
+  if(proposalFixActions.length) {
+    document.getElementById('proposalFixCount').textContent = proposalFixActions.length;
+    fList.innerHTML = proposalFixActions.slice(0,80).map(a => `
+      <div style="display:flex;gap:8px;padding:5px 10px;border-bottom:1px solid #ffe4e6;font-size:11px;align-items:center">
+        <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.wrongPerson.name)} <span style="color:#8896aa">(MSDL ${esc(a.wrongPerson.msdl)})</span> → <b>${esc(a.agName||a.msdl)}</b> <span style="color:#8896aa">(MSDL ${esc(a.msdl)})</span></span>
+        <span style="color:#8896aa;font-family:monospace;font-size:10px">${esc(a.note)}</span>
+        <span style="color:#9f1239;font-weight:700">${a.oldFee?Number(a.oldFee).toLocaleString()+'đ → ':''}${Number(a.fee||0).toLocaleString()}đ</span>
+      </div>
+    `).join('') + (proposalFixActions.length>80?`<div style="text-align:center;padding:6px;font-size:10.5px;color:#8896aa">... và ${proposalFixActions.length-80} hồ sơ khác</div>`:'');
+    fBox.style.display = 'block';
+  } else fBox.style.display = 'none';
+
+  const feeBox = document.getElementById('proposalFeeBox'), feeList = document.getElementById('proposalFeeList');
+  if(proposalFeeActions.length) {
+    document.getElementById('proposalFeeCount').textContent = proposalFeeActions.length;
+    feeList.innerHTML = proposalFeeActions.slice(0,80).map(a => `
+      <div style="display:flex;gap:8px;padding:5px 10px;border-bottom:1px solid #fef9c3;font-size:11px;align-items:center">
+        <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.person.name)} <span style="color:#8896aa">· ngày ${a.d}</span></span>
+        <span style="color:#8896aa;font-family:monospace;font-size:10px">${esc(a.note)}</span>
+        <span style="color:#854d0e;font-weight:700">${Number(a.before).toLocaleString()}đ → ${Number(a.after).toLocaleString()}đ</span>
+      </div>
+    `).join('') + (proposalFeeActions.length>80?`<div style="text-align:center;padding:6px;font-size:10.5px;color:#8896aa">... và ${proposalFeeActions.length-80} hồ sơ khác</div>`:'');
+    feeBox.style.display = 'block';
+  } else feeBox.style.display = 'none';
+
+  const uBox = document.getElementById('proposalUnmatchedBox'), uList = document.getElementById('proposalUnmatchedList');
+  if(proposalUnmatchedList.length) {
+    document.getElementById('proposalUnmatchedCount').textContent = proposalUnmatchedList.length;
+    uList.innerHTML = proposalUnmatchedList.slice(0,100).map(u => `
+      <div style="display:flex;gap:8px;padding:5px 10px;border-bottom:1px solid #fef3c7;font-size:11px;align-items:center">
+        <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(u.person.name)} <span style="color:#8896aa">· ngày ${u.d}</span></span>
+        <span style="color:#92400e;font-family:monospace;font-size:10px">${esc(u.note)}</span>
+        <span style="font-size:10px;color:#8896aa">${STATUS_LBL[u.item.status]||u.item.status}</span>
+      </div>
+    `).join('') + (proposalUnmatchedList.length>100?`<div style="text-align:center;padding:6px;font-size:10.5px;color:#8896aa">... và ${proposalUnmatchedList.length-100} hồ sơ khác</div>`:'');
+    uBox.style.display = 'block';
+  } else uBox.style.display = 'none';
+}
+
+// Tìm hoặc tạo person theo msdl (msdl). Ưu tiên: đang có trong reportData tháng này → tvvDirectory → dữ liệu Proposal.
+function findOrCreatePerson(msdl, agName, unit) {
+  let person = reportData.find(p => p.msdl === msdl);
+  if(person) return person;
+  const dir = tvvDirectory.find(t => t.msdl === msdl);
+  person = { _id: genId(), _order: nextOrder(), group: (dir && dir.unit) || unit || 'GROUP', msdl: msdl, name: (dir && dir.name) || agName || msdl, daily: {} };
+  reportData.push(person);
+  return person;
+}
+function dayFromProposalDate(proposalDate, fallbackDateStr) {
+  const src = proposalDate || fallbackDateStr;
+  const parts = String(src||'').split('-');
+  const d = parts.length===3 ? parseInt(parts[2]) : NaN;
+  return (d>=1 && d<=31) ? d : parseInt(String(fallbackDateStr).split('-')[2]) || 1;
+}
 
 async function confirmProposalImport() {
-  if(!proposalImportActions || !proposalImportActions.length) return;
-  if(!confirm(`Áp dụng ${proposalImportActions.length} thay đổi vào Sales Report tháng ${monthSelect.value} (không thể hoàn tác tự động, nhưng vẫn có thể sửa tay lại từng ô)?`)) return;
+  const total = (proposalStatusActions?.length||0) + (proposalAddActions?.length||0) + (proposalFixActions?.length||0) + (proposalFeeActions?.length||0);
+  if(!total) return;
+  const parts = [];
+  if(proposalStatusActions.length) parts.push(`${proposalStatusActions.length} cập nhật trạng thái`);
+  if(proposalAddActions.length) parts.push(`${proposalAddActions.length} thêm mới`);
+  if(proposalFixActions.length) parts.push(`${proposalFixActions.length} chuyển đúng người`);
+  if(proposalFeeActions.length) parts.push(`${proposalFeeActions.length} sửa phí`);
+  if(!confirm(`Áp dụng vào Sales Report tháng ${monthSelect.value}: ${parts.join(', ')} (không thể hoàn tác tự động, nhưng vẫn sửa tay lại từng ô được)?`)) return;
 
   const btn = document.getElementById('proposalImportBtn');
   btn.disabled = true; btn.textContent = 'Đang áp dụng...';
   try {
     const touchedPersons = new Map(); // _id -> person
-    let cntIssued = 0, cntPaid = 0, cntFee0 = 0;
-    proposalImportActions.forEach(a => {
-      if(a.action === 'status') {
-        a.item.status = a.after;
-        if(a.after === 'issued') cntIssued++; else cntPaid++;
-      } else if(a.action === 'fee') {
-        a.item.fee = 0;
-        cntFee0++;
-      }
+    const dateStr = document.getElementById('proposalDateSelect').value;
+
+    proposalStatusActions.forEach(a => {
+      if(a.action === 'status') a.item.status = a.after; else a.item.fee = 0;
       touchedPersons.set(a.person._id, a.person);
     });
 
-    // Ghi thẳng (không debounce) từng người có thay đổi, chờ tất cả xong rồi mới đóng modal.
+    proposalFeeActions.forEach(a => {
+      a.item.fee = a.after;
+      touchedPersons.set(a.person._id, a.person);
+    });
+
+    proposalFixActions.forEach(a => {
+      // gỡ khỏi người sai
+      const wrongCases = a.wrongPerson.daily[a.wrongD].cases;
+      wrongCases.splice(a.wrongCi, 1);
+      touchedPersons.set(a.wrongPerson._id, a.wrongPerson);
+      // thêm vào đúng người, phí lấy theo IP Sub của Proposal (không dùng phí cũ vì đã nhập sai người)
+      const person = findOrCreatePerson(a.msdl, a.agName, a.unit);
+      const d = a.wrongD; // giữ nguyên ngày đã nhập tay, chỉ đổi người đứng tên
+      if(!person.daily[d]) person.daily[d] = {cases:[]};
+      person.daily[d].cases.push({ fee: a.fee, status: a.status, note: a.note });
+      touchedPersons.set(person._id, person);
+    });
+
+    proposalAddActions.forEach(a => {
+      const person = findOrCreatePerson(a.msdl, a.agName, a.unit);
+      const d = dayFromProposalDate(a.proposalDate, dateStr);
+      if(!person.daily[d]) person.daily[d] = {cases:[]};
+      person.daily[d].cases.push({ fee: a.fee, status: a.status, note: a.note });
+      touchedPersons.set(person._id, person);
+    });
+
     await Promise.all([...touchedPersons.values()].map(p => flushPersonSave(String(monthSelect.value), p)));
 
     renderHeader(); renderTable(); renderSummary(); renderOverview();
-    logAudit('import_proposal', `Nhập Proposal: ${proposalImportActions.length} hồ sơ cập nhật (${cntIssued} → PH, ${cntPaid} → CP, ${cntFee0} → phí về 0), ${touchedPersons.size} TVV bị ảnh hưởng`);
+    logAudit('import_proposal', `Đối chiếu Proposal (${dateStr}): ${proposalStatusActions.length} cập nhật trạng thái, ${proposalAddActions.length} thêm mới, ${proposalFixActions.length} chuyển đúng người, ${proposalFeeActions.length} sửa phí — ${touchedPersons.size} TVV bị ảnh hưởng`);
     closeProposalImportModal();
   } catch(e) {
-    console.error('Proposal import save error:', e);
+    console.error('Proposal reconcile save error:', e);
     alert('⚠️ Lỗi lưu thay đổi: ' + (e?.code || e?.message || 'không rõ nguyên nhân') + '. Thử lại.');
   } finally {
-    btn.disabled = false; btn.textContent = 'Áp dụng thay đổi';
+    btn.disabled = false; btn.textContent = 'Áp dụng tất cả thay đổi';
   }
 }
 
@@ -2187,7 +2350,7 @@ Object.assign(window, {
   openTvvPicker,closeTvvPicker,renderTvvPickerList,addPersonFromDirectory,addPersonManual,
   openAddCaseModal,closeAddCaseModal,renderAcTvvList,selectAcTvv,selectAcManual,saveAddCaseModal,
   openTvvImportModal,closeTvvImportModal,handleTvvFileSelect,confirmTvvImport,
-  openProposalImportModal,closeProposalImportModal,handleProposalFileSelect,confirmProposalImport,
+  openProposalImportModal,closeProposalImportModal,handleProposalDateChange,runProposalReconcile,confirmProposalImport,
   renderPendingTab,markCaseIssuedFromPending,deleteCaseFromPending,exportTonExcel,setPendingFilter,
   toggleSummarySort,
 });
