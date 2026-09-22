@@ -280,12 +280,13 @@
   .modal-bg {
     position: fixed; inset: 0; background: rgba(26,31,94,.4);
     backdrop-filter: blur(4px); z-index: 9000;
-    display: flex; align-items: center; justify-content: center; padding: 20px;
+    display: flex; align-items: flex-start; justify-content: center; padding: 20px;
+    overflow-y: auto; /* modal cao hơn màn hình vẫn cuộn được, không bị mất nút phía dưới */
   }
   .modal-box {
     background: #fff; border-radius: 16px; width: 100%; max-width: 340px;
     box-shadow: 0 16px 48px rgba(26,31,94,.2);
-    padding: 22px;
+    padding: 22px; margin: auto 0; /* giữ căn giữa khi modal thấp hơn màn hình */
   }
   .modal-title { font-size: 15px; font-weight: 700; color: #1a1f36; margin-bottom: 14px; }
   .form-input {
@@ -584,11 +585,12 @@
       <div id="proposalUnmatchedList" style="max-height:180px;overflow-y:auto;border:1px solid #fde68a;border-top:none;border-radius:0 0 8px 8px"></div>
     </div>
 
-    <button onclick="confirmProposalImport()" id="proposalImportBtn" class="modal-save-btn" disabled style="opacity:.5">Áp dụng tất cả thay đổi</button>
-    <div style="font-size:10.5px;color:#8896aa;margin-top:8px;line-height:1.5">
+    <div style="font-size:10.5px;color:#8896aa;margin:4px 0 12px;line-height:1.5">
       Quy tắc trạng thái: <b>IF</b> → <b>Phát hành (PH)</b>, <b>PS</b> → <b>Có phí chưa PH (CP)</b>, <b>DC/WD</b> → phí về <b>0</b>.
       Hồ sơ chưa có ghi chú, hoặc ghi chú không khớp Proposal ngày đã chọn, sẽ được giữ nguyên hoàn toàn.
     </div>
+    <button onclick="confirmProposalImport()" id="proposalImportBtn" class="modal-save-btn" disabled
+      style="opacity:.5;position:sticky;bottom:0;box-shadow:0 -8px 10px -6px rgba(255,255,255,.9)">Áp dụng tất cả thay đổi</button>
   </div>
 </div>
 
