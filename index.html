@@ -533,21 +533,40 @@
   </div>
 </div>
 
-<!-- ── PROPOSAL RECONCILE MODAL (đối chiếu tự động với daily_sales_tvv) ── -->
+<!-- ── PROPOSAL RECONCILE MODAL (đối chiếu tự động với daily_sales_tvv, hoặc upload file Excel riêng) ── -->
 <div id="proposalImportModal" class="modal-bg" style="display:none">
   <div class="modal-box" style="max-width:680px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <div>
         <div class="modal-title" style="margin-bottom:2px">🔗 Đối chiếu Proposal</div>
-        <div style="font-size:11px;color:#8896aa">Lấy sheet Proposal từ dữ liệu TVV Hàng Ngày (daily_sales_tvv) — không cần upload file riêng. Khớp theo ProposalNum (ghi chú) + MSDL/AGCode của từng TVV.</div>
+        <div style="font-size:11px;color:#8896aa">Khớp theo ProposalNum (ghi chú) + MSDL/AGCode của từng TVV.</div>
       </div>
       <button onclick="closeProposalImportModal()" style="width:28px;height:28px;border-radius:50%;border:none;background:#f0f4ff;cursor:pointer;font-size:14px">✕</button>
     </div>
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">
-      <label style="font-size:11.5px;color:#4a5568;white-space:nowrap">Dữ liệu ngày:</label>
-      <select id="proposalDateSelect" class="form-input" style="padding:6px 8px;flex:1" onchange="handleProposalDateChange()"></select>
-      <button onclick="runProposalReconcile()" class="btn" style="background:#eef2ff;color:#4361ee;white-space:nowrap">🔍 Quét đối chiếu</button>
+
+    <div style="display:flex;gap:6px;margin-bottom:10px;background:#f0f4ff;padding:3px;border-radius:9px">
+      <button id="proposalTabDaily" onclick="switchProposalSource('daily')" class="btn" style="flex:1;background:#4361ee;color:#fff">🔗 Từ TVV Hàng Ngày</button>
+      <button id="proposalTabFile" onclick="switchProposalSource('file')" class="btn" style="flex:1;background:transparent;color:#4a5568">📄 Upload file Excel</button>
     </div>
+
+    <div id="proposalSourceDaily">
+      <div style="font-size:11px;color:#8896aa;margin-bottom:6px">Lấy sheet Proposal/Pipeline từ dữ liệu đã upload sẵn ở tab "TVV Hàng Ngày" (daily_sales_tvv) — không cần chọn file lại.</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">
+        <label style="font-size:11.5px;color:#4a5568;white-space:nowrap">Dữ liệu ngày:</label>
+        <select id="proposalDateSelect" class="form-input" style="padding:6px 8px;flex:1" onchange="handleProposalDateChange()"></select>
+        <button onclick="runProposalReconcile()" class="btn" style="background:#eef2ff;color:#4361ee;white-space:nowrap">🔍 Quét đối chiếu</button>
+      </div>
+    </div>
+
+    <div id="proposalSourceFile" style="display:none">
+      <div style="font-size:11px;color:#8896aa;margin-bottom:6px">Upload thẳng file Daily Sales Excel (cần sheet Proposal, có thêm Pipeline thì đối chiếu luôn) — không cần qua tab "TVV Hàng Ngày" trước, giống cách nhập Proposal cũ.</div>
+      <input type="file" id="proposalFileInput" accept=".xlsx,.xls" class="form-input" onchange="handleProposalFileSelect(event)" style="padding:7px 10px;margin-bottom:8px" />
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">
+        <label style="font-size:11.5px;color:#4a5568;white-space:nowrap">Áp dụng ngày (khi hồ sơ thiếu ProposalDate):</label>
+        <input type="date" id="proposalFileDate" class="form-input" style="padding:6px 8px;flex:1" />
+      </div>
+    </div>
+
     <div id="proposalImportStatus" style="font-size:11.5px;color:#4a5568;min-height:18px;margin:8px 0"></div>
 
     <div id="proposalStatusBox" style="display:none;margin-bottom:12px">
@@ -576,6 +595,13 @@
         💰 <span id="proposalFeeCount">0</span> hồ sơ PHÍ SAI lệch so với IP Sub trong Proposal — sẽ sửa lại đúng số
       </div>
       <div id="proposalFeeList" style="max-height:220px;overflow-y:auto;border:1px solid #fef08a;border-top:none;border-radius:0 0 8px 8px"></div>
+    </div>
+
+    <div id="proposalPipelineBox" style="display:none;margin-bottom:12px">
+      <div style="font-size:11.5px;font-weight:700;color:#3730a3;background:#e0e7ff;padding:6px 10px;border-radius:8px 8px 0 0;border:1px solid #c7d2fe">
+        💤 <span id="proposalPipelineCount">0</span> hồ sơ Pipeline chưa có trong Sales Report — sẽ thêm dạng <b>CF (chưa phí)</b>
+      </div>
+      <div id="proposalPipelineList" style="max-height:220px;overflow-y:auto;border:1px solid #c7d2fe;border-top:none;border-radius:0 0 8px 8px"></div>
     </div>
 
     <div id="proposalUnmatchedBox" style="display:none;margin-bottom:12px">
@@ -631,7 +657,7 @@
     </div>
     <div id="acTvvSelectedBox" style="display:none;margin:-4px 0 10px;padding:7px 10px;background:#f0f4ff;border-radius:8px;font-size:11px;color:#4361ee;font-weight:600;"></div>
 
-    <input type="number" id="acFee" placeholder="Phí đóng (VND)" class="form-input" />
+    <input type="number" step="0.001" id="acFee" placeholder="Phí đóng (triệu, vd 29.155)" class="form-input" />
     <select id="acStatus" class="form-input" style="margin-bottom:10px">
       <option value="none">🔴 Chưa phí</option>
       <option value="paid">🟡 Có phí (chưa PH)</option>
@@ -650,7 +676,7 @@
       <div class="modal-title">➕ Thêm hồ sơ</div>
       <button onclick="closeCaseModal()" style="width:28px;height:28px;border-radius:50%;border:none;background:#f0f4ff;cursor:pointer;font-size:14px">✕</button>
     </div>
-    <input type="number" id="modalFee" placeholder="Phí đóng (VND)" class="form-input" />
+    <input type="number" step="0.001" id="modalFee" placeholder="Phí đóng (triệu, vd 29.155)" class="form-input" />
     <select id="modalStatus" class="form-input" style="margin-bottom:10px">
       <option value="none">🔴 Chưa phí</option>
       <option value="paid">🟡 Có phí (chưa PH)</option>
@@ -916,8 +942,10 @@ function renderTable() {
           <div class="case-card-top">
             <input
               type="number"
-              value="${item.fee || ''}"
+              step="0.001"
+              value="${feeToTrieu(item.fee)}"
               placeholder="0"
+              title="Đơn vị: triệu (vd 29.155 = 29.155.000đ)"
               onchange="updateCaseFee(${pi},${d},${ci},this.value)"
               onclick="event.stopPropagation()"
               class="case-fee-input"
@@ -1411,12 +1439,21 @@ function normalizeVi(s) {
 }
 
 // ── Input validation ──
+// Phí nhập/hiển thị theo đơn vị TRIỆU (vd 29.155 = 29.155.000đ) để khớp thói quen nhập cũ và
+// đúng luôn với số IP Sub bên Proposal — lưu nội bộ vẫn là VND nguyên (mọi tính tổng/export
+// dùng số VND này, không đổi gì ở các chỗ khác).
+function feeToTrieu(vnd) {
+  const n = Number(vnd || 0);
+  if (!n) return '';
+  return Math.round(n / 1000) / 1000; // làm tròn tới 1.000đ = 3 số thập phân triệu, khớp độ chính xác IP Sub
+}
 function validateFee(val) {
+  if (val === '' || val === null || val === undefined) return { ok: true, value: '' };
   const n = Number(val);
-  if (val === '' || val === null) return { ok: true, value: '' };
-  if (isNaN(n)) return { ok: false, msg: 'Phí phải là số' };
-  if (Math.abs(n) > 500000000) return { ok: false, msg: 'Phí lớn bất thường (>500tr) — kiểm tra lại số 0' };
-  return { ok: true, value: n };
+  if (isNaN(n)) return { ok: false, msg: 'Phí phải là số, đơn vị triệu (vd 29.155 = 29.155.000đ)' };
+  const vnd = Math.round(n * 1000000);
+  if (Math.abs(vnd) > 500000000) return { ok: false, msg: 'Phí lớn bất thường (>500tr) — kiểm tra lại số' };
+  return { ok: true, value: vnd };
 }
 
 // ── CRUD ──
@@ -1472,9 +1509,9 @@ function updateCaseFee(pi,d,ci,val) {
     return;
   }
   const oldFee = reportData[pi].daily[d].cases[ci].fee;
-  reportData[pi].daily[d].cases[ci].fee=val; queuePersonSave(reportData[pi]); renderHeader(); renderTable();
-  if (String(oldFee) !== String(val)) {
-    logAudit('update_fee', `${reportData[pi].name} ngày ${d}: ${oldFee||0} → ${val||0} VND`);
+  reportData[pi].daily[d].cases[ci].fee=check.value; queuePersonSave(reportData[pi]); renderHeader(); renderTable();
+  if (String(oldFee) !== String(check.value)) {
+    logAudit('update_fee', `${reportData[pi].name} ngày ${d}: ${oldFee||0} → ${check.value||0} VND`);
   }
 }
 function updateCaseStatus(pi,d,ci,val) {
@@ -1667,9 +1704,9 @@ function saveAddCaseModal() {
   }
 
   if(!reportData[pi].daily[day]) reportData[pi].daily[day] = {cases:[]};
-  reportData[pi].daily[day].cases.push({fee, status, note});
+  reportData[pi].daily[day].cases.push({fee: check.value, status, note});
   queuePersonSave(reportData[pi]); renderHeader(); renderTable(); renderSummary(); renderOverview();
-  logAudit('add_case', `${reportData[pi].name} ngày ${day}: thêm hồ sơ ${Number(fee||0).toLocaleString()} VND (${status}) qua ＋HS`);
+  logAudit('add_case', `${reportData[pi].name} ngày ${day}: thêm hồ sơ ${Number(check.value||0).toLocaleString()} VND (${status}) qua ＋HS`);
   closeAddCaseModal();
 }
 
@@ -1826,6 +1863,8 @@ let proposalStatusActions = null; // [{pi,d,ci,person,item,note,action,before,af
 let proposalAddActions = null;    // [{note,msdl,agName,unit,status,product,day}]
 let proposalFixActions = null;    // [{note,msdl,agName,unit,status,product,fee,oldFee,wrongPi,wrongD,wrongCi,wrongPerson,wrongItem}]
 let proposalFeeActions = null;    // [{pi,d,ci,person,item,note,before,after}] — phí lệch so với IP Sub trên dòng đã đúng người
+let proposalPipelineActions = null; // [{note,msdl,agName,unit,product,proposalDate}] — Pipeline chưa có trong Sales Report, thêm dạng CF
+let reconcileFallbackDate = null; // ngày dùng khi hồ sơ thiếu ProposalDate (áp dụng cho cả 2 nguồn)
 let proposalUnmatchedList = null;
 
 function mapRawStatus(raw) {
@@ -1837,19 +1876,102 @@ function mapRawStatus(raw) {
 // đơn vị của trường "phí" trong Sales Report. IP Sub dùng thay vì IP Net vì IP Net = 0 với hồ sơ
 // đang ở trạng thái PS (đã đóng phí, chưa phát hành) — dùng IP Net sẽ làm mất phí của các case này.
 function feeFromRow(row) { return Math.round(Number(row?.ipSub||0) * 1000000); }
+function todayStr() { return new Date().toISOString().slice(0,10); }
+
+function switchProposalSource(src) {
+  const isDaily = src === 'daily';
+  document.getElementById('proposalSourceDaily').style.display = isDaily ? 'block' : 'none';
+  document.getElementById('proposalSourceFile').style.display = isDaily ? 'none' : 'block';
+  document.getElementById('proposalTabDaily').style.background = isDaily ? '#4361ee' : 'transparent';
+  document.getElementById('proposalTabDaily').style.color = isDaily ? '#fff' : '#4a5568';
+  document.getElementById('proposalTabFile').style.background = isDaily ? 'transparent' : '#4361ee';
+  document.getElementById('proposalTabFile').style.color = isDaily ? '#4a5568' : '#fff';
+}
+
+// Đọc trực tiếp sheet Proposal + Pipeline từ file Excel Daily Sales, cùng khuôn dữ liệu với
+// daily_sales_tvv để dùng chung một hàm đối chiếu computeReconcile() bên dưới.
+function isYearMonth(v) {
+  if (v === null || v === undefined || v === '') return false;
+  const n = Number(v);
+  return !isNaN(n) && n > 200000 && n < 300000;
+}
+function excelDateIntToISO(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const s = String(v);
+  if (s.length === 8 && /^\d{8}$/.test(s)) return s.slice(0,4) + '-' + s.slice(4,6) + '-' + s.slice(6,8);
+  return null;
+}
+function parseProposalPipelineExcel(arrayBuffer) {
+  const wb = XLSX.read(arrayBuffer, { type:'array', cellDates:false });
+  const proposalName = wb.SheetNames.includes('Proposal') ? 'Proposal' : (wb.SheetNames.includes('Export') ? 'Export' : null);
+  const rawProposal = proposalName ? XLSX.utils.sheet_to_json(wb.Sheets[proposalName], {defval:null, raw:true}) : [];
+  const rawPipeline = wb.SheetNames.includes('Pipeline') ? XLSX.utils.sheet_to_json(wb.Sheets['Pipeline'], {defval:null, raw:true}) : [];
+  const proposalRows = [];
+  for (const r of rawProposal) {
+    if (!isYearMonth(r['Yearmonth']) || !r['AGCode']) continue;
+    const status = (r['PolicyStatus']||'').toString().trim().toUpperCase();
+    proposalRows.push({
+      unit: r['UnitCode']||'', msdl: String(r['AGCode']), agName: r['AGName']||'',
+      proposalNum: r['ProposalNum'] ? String(r['ProposalNum']) : '', status,
+      product: r['Remarked_ProductNameVN']||r['ProductCode']||'',
+      proposalDate: excelDateIntToISO(r['ProposalDate']),
+      ipSub: Number(r['IP Sub'])||0
+    });
+  }
+  const pipelineRows = [];
+  for (const r of rawPipeline) {
+    if (!r['AGCode'] || !r['ProposalNum']) continue;
+    pipelineRows.push({
+      unit: r['UnitCode']||'', msdl: String(r['AGCode']), agName: r['AGName']||'',
+      proposalNum: String(r['ProposalNum']), proposalDate: excelDateIntToISO(r['ProposalDate']),
+      product: r['ProductNameVN']||r['BasicProductCode']||''
+    });
+  }
+  return { proposalRows, pipelineRows };
+}
+function handleProposalFileSelect(evt) {
+  const file = evt.target.files[0];
+  const statusEl = document.getElementById('proposalImportStatus');
+  if(!file) return;
+  statusEl.style.color = '#4a5568';
+  statusEl.textContent = 'Đang đọc file...';
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const { proposalRows, pipelineRows } = parseProposalPipelineExcel(e.target.result);
+      if(!proposalRows.length && !pipelineRows.length) {
+        statusEl.style.color = '#dc2626';
+        statusEl.textContent = '⚠️ Không tìm thấy dòng Proposal/Pipeline hợp lệ trong file (kiểm tra tên sheet và cột Yearmonth/AGCode).';
+        return;
+      }
+      const dateStr = document.getElementById('proposalFileDate').value || todayStr();
+      computeReconcile(proposalRows, pipelineRows, dateStr, `Đối chiếu ${proposalRows.length} dòng Proposal + ${pipelineRows.length} dòng Pipeline từ file (áp dụng ngày ${dateStr}).`);
+    } catch(err) {
+      console.error('Proposal file parse error:', err);
+      statusEl.style.color = '#dc2626';
+      statusEl.textContent = '⚠️ Lỗi đọc file Excel. Kiểm tra định dạng file (.xlsx/.xls).';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
 
 async function openProposalImportModal() {
   if(userRole!=='admin'){openLoginModal();return;}
-  document.getElementById('proposalImportStatus').textContent = 'Đang tải danh sách ngày có dữ liệu...';
   document.getElementById('proposalStatusBox').style.display = 'none';
   document.getElementById('proposalAddBox').style.display = 'none';
   document.getElementById('proposalFixBox').style.display = 'none';
   document.getElementById('proposalFeeBox').style.display = 'none';
+  document.getElementById('proposalPipelineBox').style.display = 'none';
   document.getElementById('proposalUnmatchedBox').style.display = 'none';
   document.getElementById('proposalImportBtn').disabled = true;
   document.getElementById('proposalImportBtn').style.opacity = '.5';
-  proposalStatusActions = null; proposalAddActions = null; proposalFixActions = null; proposalFeeActions = null; proposalUnmatchedList = null;
+  document.getElementById('proposalImportStatus').textContent = '';
+  document.getElementById('proposalFileInput').value = '';
+  document.getElementById('proposalFileDate').value = todayStr();
+  proposalStatusActions = null; proposalAddActions = null; proposalFixActions = null; proposalFeeActions = null; proposalPipelineActions = null; proposalUnmatchedList = null;
   document.getElementById('proposalImportModal').style.display = 'flex';
+  switchProposalSource('daily');
+  document.getElementById('proposalImportStatus').textContent = 'Đang tải danh sách ngày có dữ liệu...';
 
   try {
     const yyyy = String(yearSelect.value);
@@ -1892,12 +2014,26 @@ async function runProposalReconcile() {
     const data = snap.data();
     const proposalRows = data.proposalRows || [];
     proposalRows.forEach(r => { if(r.msdl===undefined && r.agCode!==undefined) r.msdl = r.agCode; }); // dữ liệu ngày cũ trước khi TVV Hàng Ngày đổi tên trường sang msdl
-    proposalRowsCache = proposalRows;
-    if(!proposalRows.length) {
+    const pipelineRows = data.pipelineRows || [];
+    pipelineRows.forEach(r => { if(r.msdl===undefined && r.agCode!==undefined) r.msdl = r.agCode; });
+    if(!proposalRows.length && !pipelineRows.length) {
       statusEl.style.color = '#dc2626';
-      statusEl.textContent = '⚠️ Ngày này không có sheet Proposal (hoặc rỗng).';
+      statusEl.textContent = '⚠️ Ngày này không có sheet Proposal/Pipeline (hoặc rỗng).';
       return;
     }
+    computeReconcile(proposalRows, pipelineRows, dateStr, `Đối chiếu ${proposalRows.length} dòng Proposal + ${pipelineRows.length} dòng Pipeline ngày ${dateStr} (từ TVV Hàng Ngày).`);
+  } catch(e) {
+    console.error('Proposal reconcile error:', e);
+    statusEl.style.color = '#dc2626';
+    statusEl.textContent = '⚠️ Lỗi đối chiếu: ' + (e?.code || e?.message || 'không rõ nguyên nhân');
+  }
+}
+
+function computeReconcile(proposalRows, pipelineRows, fallbackDateStr, successMsg) {
+  proposalRowsCache = proposalRows;
+  reconcileFallbackDate = fallbackDateStr;
+  const statusEl = document.getElementById('proposalImportStatus');
+  try {
 
     // proposalNum -> Map<msdl, {msdl, agName, unit, status, product}> (loại trùng, giữ dòng cuối)
     const byNote = new Map();
@@ -1922,6 +2058,23 @@ async function runProposalReconcile() {
           if(!casesByNote.has(note)) casesByNote.set(note, []);
           casesByNote.get(note).push({ pi, d, ci, person, item });
         });
+      });
+    });
+
+    // Pipeline → thêm vào Sales Report dạng CF (chưa phí) nếu chưa có ghi chú này ở bất kỳ đâu
+    // (kể cả đã có bên Proposal — nghĩa là đã tiến triển thành hồ sơ thật, không cần thêm CF nữa).
+    const pipelineByNote = new Map();
+    pipelineRows.forEach(r => {
+      if(!r.proposalNum || !r.msdl) return;
+      if(!pipelineByNote.has(r.proposalNum)) pipelineByNote.set(r.proposalNum, new Map());
+      pipelineByNote.get(r.proposalNum).set(r.msdl, r);
+    });
+    const pipelineAddActions = [];
+    pipelineByNote.forEach((agMap, note) => {
+      if(byNote.has(note)) return;        // đã có bên Proposal — không phải Pipeline nữa
+      if(casesByNote.has(note)) return;   // Sales Report đã có ghi chú này rồi (dù đứng tên ai)
+      agMap.forEach((row, msdl) => {
+        pipelineAddActions.push({ note, msdl, agName: row.agName, unit: row.unit, product: row.product, proposalDate: row.proposalDate });
       });
     });
 
@@ -1991,6 +2144,7 @@ async function runProposalReconcile() {
     proposalAddActions = addActions;
     proposalFixActions = fixActions;
     proposalFeeActions = feeActions;
+    proposalPipelineActions = pipelineAddActions;
 
     // 3) Cảnh báo: ghi chú có trong Sales Report (chưa PH), KHÔNG thấy trong Proposal ngày này
     const unmatched = [];
@@ -2002,8 +2156,8 @@ async function runProposalReconcile() {
 
     renderProposalReconcilePreview();
     statusEl.style.color = '#065f46';
-    statusEl.textContent = `✓ Đối chiếu ${proposalRows.length} dòng Proposal ngày ${dateStr}.`;
-    const totalActions = statusActions.length + addActions.length + fixActions.length + feeActions.length;
+    statusEl.textContent = '✓ ' + successMsg;
+    const totalActions = statusActions.length + addActions.length + fixActions.length + feeActions.length + pipelineAddActions.length;
     document.getElementById('proposalImportBtn').disabled = totalActions === 0;
     document.getElementById('proposalImportBtn').style.opacity = totalActions === 0 ? '.5' : '1';
   } catch(e) {
@@ -2069,6 +2223,19 @@ function renderProposalReconcilePreview() {
     feeBox.style.display = 'block';
   } else feeBox.style.display = 'none';
 
+  const pBox = document.getElementById('proposalPipelineBox'), pList = document.getElementById('proposalPipelineList');
+  if(proposalPipelineActions.length) {
+    document.getElementById('proposalPipelineCount').textContent = proposalPipelineActions.length;
+    pList.innerHTML = proposalPipelineActions.slice(0,80).map(a => `
+      <div style="display:flex;gap:8px;padding:5px 10px;border-bottom:1px solid #e0e7ff;font-size:11px;align-items:center">
+        <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.agName||a.msdl)} <span style="color:#8896aa">· MSDL ${esc(a.msdl)}</span></span>
+        <span style="color:#8896aa;font-family:monospace;font-size:10px">${esc(a.note)}</span>
+        <span style="font-weight:700;color:#4338ca">CF</span>
+      </div>
+    `).join('') + (proposalPipelineActions.length>80?`<div style="text-align:center;padding:6px;font-size:10.5px;color:#8896aa">... và ${proposalPipelineActions.length-80} hồ sơ khác</div>`:'');
+    pBox.style.display = 'block';
+  } else pBox.style.display = 'none';
+
   const uBox = document.getElementById('proposalUnmatchedBox'), uList = document.getElementById('proposalUnmatchedList');
   if(proposalUnmatchedList.length) {
     document.getElementById('proposalUnmatchedCount').textContent = proposalUnmatchedList.length;
@@ -2100,20 +2267,21 @@ function dayFromProposalDate(proposalDate, fallbackDateStr) {
 }
 
 async function confirmProposalImport() {
-  const total = (proposalStatusActions?.length||0) + (proposalAddActions?.length||0) + (proposalFixActions?.length||0) + (proposalFeeActions?.length||0);
+  const total = (proposalStatusActions?.length||0) + (proposalAddActions?.length||0) + (proposalFixActions?.length||0) + (proposalFeeActions?.length||0) + (proposalPipelineActions?.length||0);
   if(!total) return;
   const parts = [];
   if(proposalStatusActions.length) parts.push(`${proposalStatusActions.length} cập nhật trạng thái`);
   if(proposalAddActions.length) parts.push(`${proposalAddActions.length} thêm mới`);
   if(proposalFixActions.length) parts.push(`${proposalFixActions.length} chuyển đúng người`);
   if(proposalFeeActions.length) parts.push(`${proposalFeeActions.length} sửa phí`);
+  if(proposalPipelineActions.length) parts.push(`${proposalPipelineActions.length} thêm Pipeline (CF)`);
   if(!confirm(`Áp dụng vào Sales Report tháng ${monthSelect.value}: ${parts.join(', ')} (không thể hoàn tác tự động, nhưng vẫn sửa tay lại từng ô được)?`)) return;
 
   const btn = document.getElementById('proposalImportBtn');
   btn.disabled = true; btn.textContent = 'Đang áp dụng...';
   try {
     const touchedPersons = new Map(); // _id -> person
-    const dateStr = document.getElementById('proposalDateSelect').value;
+    const dateStr = reconcileFallbackDate;
 
     proposalStatusActions.forEach(a => {
       if(a.action === 'status') a.item.status = a.after; else a.item.fee = 0;
@@ -2146,10 +2314,18 @@ async function confirmProposalImport() {
       touchedPersons.set(person._id, person);
     });
 
+    proposalPipelineActions.forEach(a => {
+      const person = findOrCreatePerson(a.msdl, a.agName, a.unit);
+      const d = dayFromProposalDate(a.proposalDate, dateStr);
+      if(!person.daily[d]) person.daily[d] = {cases:[]};
+      person.daily[d].cases.push({ fee: 0, status: 'none', note: a.note });
+      touchedPersons.set(person._id, person);
+    });
+
     await Promise.all([...touchedPersons.values()].map(p => flushPersonSave(String(monthSelect.value), p)));
 
     renderHeader(); renderTable(); renderSummary(); renderOverview();
-    logAudit('import_proposal', `Đối chiếu Proposal (${dateStr}): ${proposalStatusActions.length} cập nhật trạng thái, ${proposalAddActions.length} thêm mới, ${proposalFixActions.length} chuyển đúng người, ${proposalFeeActions.length} sửa phí — ${touchedPersons.size} TVV bị ảnh hưởng`);
+    logAudit('import_proposal', `Đối chiếu Proposal (${dateStr}): ${proposalStatusActions.length} cập nhật trạng thái, ${proposalAddActions.length} thêm mới, ${proposalFixActions.length} chuyển đúng người, ${proposalFeeActions.length} sửa phí, ${proposalPipelineActions.length} thêm Pipeline (CF) — ${touchedPersons.size} TVV bị ảnh hưởng`);
     closeProposalImportModal();
   } catch(e) {
     console.error('Proposal reconcile save error:', e);
@@ -2189,9 +2365,9 @@ function saveModalCase() {
   if (!check.ok) { alert('⚠️ ' + check.msg); return; }
   if(!reportData[currentModalPerson].daily[currentModalDay])
     reportData[currentModalPerson].daily[currentModalDay]={cases:[]};
-  reportData[currentModalPerson].daily[currentModalDay].cases.push({fee,status,note});
+  reportData[currentModalPerson].daily[currentModalDay].cases.push({fee: check.value, status, note});
   queuePersonSave(reportData[currentModalPerson]); renderHeader(); renderTable(); renderSummary(); renderOverview();
-  logAudit('add_case', `${reportData[currentModalPerson].name} ngày ${currentModalDay}: thêm hồ sơ ${Number(fee||0).toLocaleString()} VND (${status})`);
+  logAudit('add_case', `${reportData[currentModalPerson].name} ngày ${currentModalDay}: thêm hồ sơ ${Number(check.value||0).toLocaleString()} VND (${status})`);
   closeCaseModal();
 }
 
