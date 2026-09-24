@@ -592,7 +592,7 @@
 
     <div id="proposalFeeBox" style="display:none;margin-bottom:12px">
       <div style="font-size:11.5px;font-weight:700;color:#854d0e;background:#fef9c3;padding:6px 10px;border-radius:8px 8px 0 0;border:1px solid #fef08a">
-        💰 <span id="proposalFeeCount">0</span> hồ sơ PHÍ SAI lệch so với IP Sub trong Proposal — sẽ sửa lại đúng số
+        💰 <span id="proposalFeeCount">0</span> hồ sơ PHÍ SAI/CHƯA CÓ — sửa theo IP Sub (Proposal) hoặc APE (Pipeline, nếu chưa lên Proposal)
       </div>
       <div id="proposalFeeList" style="max-height:220px;overflow-y:auto;border:1px solid #fef08a;border-top:none;border-radius:0 0 8px 8px"></div>
     </div>
@@ -1924,7 +1924,7 @@ function parseProposalPipelineExcel(arrayBuffer) {
     pipelineRows.push({
       unit: r['UnitCode']||'', msdl: String(r['AGCode']), agName: r['AGName']||'',
       proposalNum: String(r['ProposalNum']), proposalDate: excelDateIntToISO(r['ProposalDate']),
-      product: r['ProductNameVN']||r['BasicProductCode']||''
+      product: r['ProductNameVN']||r['BasicProductCode']||'', ape: Number(r['APE (mil)'])||0
     });
   }
   return { proposalRows, pipelineRows };
@@ -2139,6 +2139,22 @@ function computeReconcile(proposalRows, pipelineRows, fallbackDateStr, successMs
         }
       });
     });
+    // 2c) Hồ sơ chỉ có ở Pipeline (chưa lên Proposal), Sales Report đã điền đúng người + ghi chú
+    // nhưng đang chưa có phí (0) — điền tạm theo APE của Pipeline thay vì để 0.
+    // Không đụng vào note đã thuộc Proposal (byNote) — case đó đã được 2b) xử lý theo IP Sub rồi.
+    pipelineByNote.forEach((agMap, note) => {
+      if(byNote.has(note)) return;
+      const entries = casesByNote.get(note) || [];
+      entries.forEach(e => {
+        const row = agMap.get(e.person.msdl);
+        if(!row) return;
+        const curFee = Number(e.item.fee||0);
+        const pipelineFee = Math.round(Number(row.ape||0) * 1000000);
+        if(curFee === 0 && pipelineFee > 0) {
+          feeActions.push({ pi:e.pi, d:e.d, ci:e.ci, person:e.person, item:e.item, note, before: curFee, after: pipelineFee, fromPipeline: true });
+        }
+      });
+    });
 
     proposalStatusActions = statusActions;
     proposalAddActions = addActions;
@@ -2215,7 +2231,7 @@ function renderProposalReconcilePreview() {
     document.getElementById('proposalFeeCount').textContent = proposalFeeActions.length;
     feeList.innerHTML = proposalFeeActions.slice(0,80).map(a => `
       <div style="display:flex;gap:8px;padding:5px 10px;border-bottom:1px solid #fef9c3;font-size:11px;align-items:center">
-        <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.person.name)} <span style="color:#8896aa">· ngày ${a.d}</span></span>
+        <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.person.name)} <span style="color:#8896aa">· ngày ${a.d}</span>${a.fromPipeline?' <span style=\"color:#4338ca\">(Pipeline)</span>':''}</span>
         <span style="color:#8896aa;font-family:monospace;font-size:10px">${esc(a.note)}</span>
         <span style="color:#854d0e;font-weight:700">${Number(a.before).toLocaleString()}đ → ${Number(a.after).toLocaleString()}đ</span>
       </div>
