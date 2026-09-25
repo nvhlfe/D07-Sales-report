@@ -571,7 +571,7 @@
 
     <div id="proposalStatusBox" style="display:none;margin-bottom:12px">
       <div style="font-size:11.5px;font-weight:700;color:#166534;background:#dcfce7;padding:6px 10px;border-radius:8px 8px 0 0;border:1px solid #bbf7d0">
-        ✓ <span id="proposalStatusCount">0</span> hồ sơ cần cập nhật trạng thái (IF/PS/DC/WD)
+        ✓ <span id="proposalStatusCount">0</span> hồ sơ cần cập nhật trạng thái (IF/PS/DC/WD/PO)
       </div>
       <div id="proposalImportPreview" style="max-height:220px;overflow-y:auto;border:1px solid #e8ecf4;border-top:none;border-radius:0 0 8px 8px"></div>
     </div>
@@ -612,7 +612,7 @@
     </div>
 
     <div style="font-size:10.5px;color:#8896aa;margin:4px 0 12px;line-height:1.5">
-      Quy tắc trạng thái: <b>IF</b> → <b>Phát hành (PH)</b>, <b>PS</b> → <b>Có phí chưa PH (CP)</b>, <b>DC/WD</b> → phí về <b>0</b>.
+      Quy tắc trạng thái: <b>IF</b> → <b>Phát hành (PH)</b>, <b>PS</b> → <b>Có phí chưa PH (CP)</b>, <b>PO/DC/WD</b> → phí về <b>0</b>.
       Hồ sơ chưa có ghi chú, hoặc ghi chú không khớp Proposal ngày đã chọn, sẽ được giữ nguyên hoàn toàn.
     </div>
     <button onclick="confirmProposalImport()" id="proposalImportBtn" class="modal-save-btn" disabled
@@ -1852,7 +1852,7 @@ async function confirmTvvImport() {
 // ── Đối chiếu Proposal (tự động, nguồn: daily_sales_tvv — không cần upload file) ──
 // Nguồn: sheet Proposal trong daily_sales_tvv/{YYYY-MM-DD}, mỗi dòng có { proposalNum, msdl, agName, unit, status, product }.
 // Khớp với hồ sơ Sales Report qua ghi chú (note) = ProposalNum, VÀ MSDL của TVV khớp nhau.
-//  - Ghi chú khớp, MSDL khớp, trạng thái khác → cập nhật trạng thái (IF→PH, PS→CP, DC/WD→phí 0). Không quan tâm MSDL cho việc này vì trạng thái là của hồ sơ, không phải của riêng ai.
+//  - Ghi chú khớp, MSDL khớp, trạng thái khác → cập nhật trạng thái (IF→PH, PS→CP, PO/DC/WD→phí 0). Không quan tâm MSDL cho việc này vì trạng thái là của hồ sơ, không phải của riêng ai.
 //  - Ghi chú khớp Proposal, nhưng KHÔNG có hồ sơ nào của đúng MSDL đó trong Sales Report → THIẾU, tự thêm dòng mới cho đúng người.
 //  - Có hồ sơ trong Sales Report với ghi chú đó, nhưng MSDL không nằm trong danh sách MSDL hợp lệ của Proposal cho ghi chú đó → SAI người, tự chuyển sang đúng người (giữ nguyên phí đã nhập).
 //  - Ghi chú không xuất hiện trong Proposal ngày đã chọn → giữ nguyên, chỉ cảnh báo.
@@ -2086,11 +2086,11 @@ function computeReconcile(proposalRows, pipelineRows, fallbackDateStr, successMs
       if(!statusByNote.has(note)) return;
       const raw = statusByNote.get(note);
       const mapped = mapRawStatus(raw);
-      if(raw === 'DC' || raw === 'WD') dcWdNotes.add(note);
+      if(raw === 'DC' || raw === 'WD' || raw === 'PO') dcWdNotes.add(note);
       entries.forEach(({pi,d,ci,person,item}) => {
         if(mapped && item.status !== mapped) {
           statusActions.push({ pi,d,ci,person,item, note, action:'status', before:item.status, after:mapped });
-        } else if((raw === 'DC' || raw === 'WD') && Number(item.fee||0) !== 0) {
+        } else if((raw === 'DC' || raw === 'WD' || raw === 'PO') && Number(item.fee||0) !== 0) {
           statusActions.push({ pi,d,ci,person,item, note, action:'fee', before:item.fee, after:0 });
         }
       });
@@ -2124,7 +2124,7 @@ function computeReconcile(proposalRows, pipelineRows, fallbackDateStr, successMs
     });
 
     // 2b) Phí sai lệch so với Proposal (IP Sub) trên các dòng đã đứng ĐÚNG người, ĐÚNG ghi chú —
-    //     bỏ qua case DC/WD (đã đưa phí về 0 ở statusActions) và case Proposal chưa có IP Sub (>0).
+    //     bỏ qua case DC/WD/PO (đã đưa phí về 0 ở statusActions) và case Proposal chưa có IP Sub (>0).
     const feeActions = [];
     byNote.forEach((agMap, note) => {
       if(dcWdNotes.has(note)) return;
