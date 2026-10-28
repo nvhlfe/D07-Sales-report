@@ -166,6 +166,11 @@
     opacity: .85;
   }
   .case-note-line:hover { opacity: 1; text-decoration: underline; }
+  .case-policy-line {
+    font-size: 9px; line-height: 1.25; font-weight: 600; color: #166534;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+    margin-bottom: 2px; opacity: .9;
+  }
   .case-card.none   { background: #fee2e2; border-color: #fca5a5; }
   .case-card.paid   { background: #fef9c3; border-color: #fde68a; }
   .case-card.issued { background: #dcfce7; border-color: #86efac; }
@@ -939,6 +944,9 @@ function renderTable() {
             title="Bấm để thêm ghi chú"
             onclick="event.stopPropagation();editCaseNote(${pi},${d},${ci})"></div>
           `}
+          ${(item.policyNum && (item.status==='issued'||item.status==='paid')) ? `
+          <div class="case-policy-line" title="Số hợp đồng: ${esc(item.policyNum)}">📄 ${esc(item.policyNum)}</div>
+          ` : ''}
           <div class="case-card-top">
             <input
               type="number"
@@ -1915,7 +1923,8 @@ function parseProposalPipelineExcel(arrayBuffer) {
       proposalNum: r['ProposalNum'] ? String(r['ProposalNum']) : '', status,
       product: r['Remarked_ProductNameVN']||r['ProductCode']||'',
       proposalDate: excelDateIntToISO(r['ProposalDate']),
-      ipSub: Number(r['IP Sub'])||0
+      ipSub: Number(r['IP Sub'])||0,
+      policyNum: r['PolicyNum'] ? String(r['PolicyNum']) : ''
     });
   }
   const pipelineRows = [];
@@ -2045,6 +2054,9 @@ function computeReconcile(proposalRows, pipelineRows, fallbackDateStr, successMs
     // proposalNum -> trạng thái đại diện (dùng dòng đầu tiên có status IF/PS, trạng thái là của hồ sơ chứ không phải của riêng 1 TVV)
     const statusByNote = new Map();
     proposalRows.forEach(r => { if(r.proposalNum && !statusByNote.has(r.proposalNum)) statusByNote.set(r.proposalNum, r.status); });
+    // Số hợp đồng (PolicyNum) đại diện cho ghi chú — chỉ có ý nghĩa khi hồ sơ đã IF/PS nên lấy theo dòng đầu tiên có giá trị.
+    const policyNumByNote = new Map();
+    proposalRows.forEach(r => { if(r.proposalNum && r.policyNum && !policyNumByNote.has(r.proposalNum)) policyNumByNote.set(r.proposalNum, r.policyNum); });
 
     // Gom mọi case entry trong Sales Report đang có ghi chú, để biết ai đã có / ai đang giữ sai.
     const casesByNote = new Map(); // note -> [{pi,d,ci,person,item}]
@@ -2087,11 +2099,15 @@ function computeReconcile(proposalRows, pipelineRows, fallbackDateStr, successMs
       const raw = statusByNote.get(note);
       const mapped = mapRawStatus(raw);
       if(raw === 'DC' || raw === 'WD') dcWdNotes.add(note);
+      const pnum = policyNumByNote.get(note)||'';
       entries.forEach(({pi,d,ci,person,item}) => {
         if(mapped && item.status !== mapped) {
-          statusActions.push({ pi,d,ci,person,item, note, action:'status', before:item.status, after:mapped });
+          statusActions.push({ pi,d,ci,person,item, note, action:'status', before:item.status, after:mapped, policyNum: pnum });
         } else if((raw === 'DC' || raw === 'WD') && Number(item.fee||0) !== 0) {
           statusActions.push({ pi,d,ci,person,item, note, action:'fee', before:item.fee, after:0 });
+        } else if(mapped && pnum && item.policyNum !== pnum) {
+          // trạng thái đã đúng từ trước nhưng chưa có/sai PolicyNum — chỉ cần điền thêm, không phải đổi trạng thái
+          statusActions.push({ pi,d,ci,person,item, note, action:'policyNum', before:item.policyNum||'', after:item.status, policyNum: pnum });
         }
       });
     });
@@ -2114,11 +2130,11 @@ function computeReconcile(proposalRows, pipelineRows, fallbackDateStr, successMs
         if(idx < wrongEntries.length) {
           const w = wrongEntries[idx];
           fixActions.push({
-            note, msdl, agName: row.agName, unit: row.unit, status, product: row.product, fee, oldFee: Number(w.item.fee||0),
+            note, msdl, agName: row.agName, unit: row.unit, status, product: row.product, fee, oldFee: Number(w.item.fee||0), policyNum: row.policyNum||'',
             wrongPi:w.pi, wrongD:w.d, wrongCi:w.ci, wrongPerson:w.person, wrongItem:w.item
           });
         } else {
-          addActions.push({ note, msdl, agName: row.agName, unit: row.unit, status, product: row.product, fee, proposalDate: row.proposalDate });
+          addActions.push({ note, msdl, agName: row.agName, unit: row.unit, status, product: row.product, fee, proposalDate: row.proposalDate, policyNum: row.policyNum||'' });
         }
       });
     });
@@ -2192,8 +2208,8 @@ function renderProposalReconcilePreview() {
     sList.innerHTML = proposalStatusActions.slice(0,80).map(a => `
       <div style="display:flex;gap:8px;padding:5px 10px;border-bottom:1px solid #f0f4ff;font-size:11px;align-items:center">
         <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.person.name)} <span style="color:#8896aa">· ngày ${a.d}</span></span>
-        <span style="color:#8896aa;font-family:monospace;font-size:10px">${esc(a.note)}</span>
-        <span style="font-weight:700;color:${a.action==='fee'?'#be123c':'#15803d'}">${lbl[a.action==='fee'?'fee0':a.after]}</span>
+        <span style="color:#8896aa;font-family:monospace;font-size:10px">${esc(a.note)}${a.policyNum?' · HĐ '+esc(a.policyNum):''}</span>
+        <span style="font-weight:700;color:${a.action==='fee'?'#be123c':a.action==='policyNum'?'#166534':'#15803d'}">${a.action==='policyNum'?'+ Số HĐ':lbl[a.action==='fee'?'fee0':a.after]}</span>
       </div>
     `).join('') + (proposalStatusActions.length>80?`<div style="text-align:center;padding:6px;font-size:10.5px;color:#8896aa">... và ${proposalStatusActions.length-80} hồ sơ khác</div>`:'');
     sBox.style.display = 'block';
@@ -2205,7 +2221,7 @@ function renderProposalReconcilePreview() {
     aList.innerHTML = proposalAddActions.slice(0,80).map(a => `
       <div style="display:flex;gap:8px;padding:5px 10px;border-bottom:1px solid #e0f2fe;font-size:11px;align-items:center">
         <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.agName||a.msdl)} <span style="color:#8896aa">· MSDL ${esc(a.msdl)}</span></span>
-        <span style="color:#8896aa;font-family:monospace;font-size:10px">${esc(a.note)}</span>
+        <span style="color:#8896aa;font-family:monospace;font-size:10px">${esc(a.note)}${a.policyNum?' · HĐ '+esc(a.policyNum):''}</span>
         <span style="color:#0369a1;font-weight:700">${Number(a.fee||0).toLocaleString()}đ</span>
         <span style="font-weight:700;color:#0369a1">${lbl[a.status==='issued'?'issued':a.status==='paid'?'paid':'fee0'] || 'CF'}</span>
       </div>
@@ -2219,7 +2235,7 @@ function renderProposalReconcilePreview() {
     fList.innerHTML = proposalFixActions.slice(0,80).map(a => `
       <div style="display:flex;gap:8px;padding:5px 10px;border-bottom:1px solid #ffe4e6;font-size:11px;align-items:center">
         <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.wrongPerson.name)} <span style="color:#8896aa">(MSDL ${esc(a.wrongPerson.msdl)})</span> → <b>${esc(a.agName||a.msdl)}</b> <span style="color:#8896aa">(MSDL ${esc(a.msdl)})</span></span>
-        <span style="color:#8896aa;font-family:monospace;font-size:10px">${esc(a.note)}</span>
+        <span style="color:#8896aa;font-family:monospace;font-size:10px">${esc(a.note)}${a.policyNum?' · HĐ '+esc(a.policyNum):''}</span>
         <span style="color:#9f1239;font-weight:700">${a.oldFee?Number(a.oldFee).toLocaleString()+'đ → ':''}${Number(a.fee||0).toLocaleString()}đ</span>
       </div>
     `).join('') + (proposalFixActions.length>80?`<div style="text-align:center;padding:6px;font-size:10.5px;color:#8896aa">... và ${proposalFixActions.length-80} hồ sơ khác</div>`:'');
@@ -2300,7 +2316,9 @@ async function confirmProposalImport() {
     const dateStr = reconcileFallbackDate;
 
     proposalStatusActions.forEach(a => {
-      if(a.action === 'status') a.item.status = a.after; else a.item.fee = 0;
+      if(a.action === 'status') { a.item.status = a.after; if(a.policyNum) a.item.policyNum = a.policyNum; }
+      else if(a.action === 'policyNum') { a.item.policyNum = a.policyNum; }
+      else { a.item.fee = 0; }
       touchedPersons.set(a.person._id, a.person);
     });
 
@@ -2318,7 +2336,7 @@ async function confirmProposalImport() {
       const person = findOrCreatePerson(a.msdl, a.agName, a.unit);
       const d = a.wrongD; // giữ nguyên ngày đã nhập tay, chỉ đổi người đứng tên
       if(!person.daily[d]) person.daily[d] = {cases:[]};
-      person.daily[d].cases.push({ fee: a.fee, status: a.status, note: a.note });
+      person.daily[d].cases.push({ fee: a.fee, status: a.status, note: a.note, policyNum: a.policyNum||'' });
       touchedPersons.set(person._id, person);
     });
 
@@ -2326,7 +2344,7 @@ async function confirmProposalImport() {
       const person = findOrCreatePerson(a.msdl, a.agName, a.unit);
       const d = dayFromProposalDate(a.proposalDate, dateStr);
       if(!person.daily[d]) person.daily[d] = {cases:[]};
-      person.daily[d].cases.push({ fee: a.fee, status: a.status, note: a.note });
+      person.daily[d].cases.push({ fee: a.fee, status: a.status, note: a.note, policyNum: a.policyNum||'' });
       touchedPersons.set(person._id, person);
     });
 
