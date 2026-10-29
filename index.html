@@ -507,7 +507,7 @@
           <th>Ngày lên HS</th>
           <th>Phí</th>
           <th>Đã chờ</th>
-          <th style="text-align:left;min-width:140px">Ghi chú</th>
+          <th style="text-align:left;min-width:140px">Số HĐ / Hồ sơ</th>
           <th></th>
         </tr>
       </thead>
@@ -1232,7 +1232,7 @@ function renderPendingTab() {
       <td style="text-align:center">${r.d}</td>
       <td style="text-align:right">${Number(r.item.fee||0).toLocaleString()}</td>
       <td style="text-align:center"><span class="age-chip ${ageChipClass(r.ageDays)}">${r.ageDays} ngày</span></td>
-      <td style="text-align:left;color:#4a5568">${esc(r.item.note||'—')}</td>
+      <td style="text-align:left;color:#4a5568">${r.item.policyNum ? `<span style="color:#166534;font-weight:600">${esc(r.item.policyNum)}</span>` : esc(r.item.note||'—')}</td>
       <td style="text-align:center">
         <button onclick="markCaseIssuedFromPending(${r.pi},${r.d},${r.ci})"
           class="btn" style="background:#dcfce7;color:#15803d;padding:4px 8px;font-size:10.5px">🟢 PH</button>
